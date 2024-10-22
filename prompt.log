@@ -1,0 +1,61 @@
+Log: OnlyPaws Contract Development and Testing
+
+1. Initial Problem:
+   - Division by zero errors in the OnlyPaws contract
+   - BERA transfer failures in test cases
+
+2. Contract Changes (OnlyPaws.sol):
+   - Updated purchasePaw function to handle initial reward rate setting
+   - Modified _updateRewardRate function to handle reward distribution
+   - Added checks for totalStaked and rewardRate in _earned function
+   - Changed seller to payable address in purchasePaw function
+
+3. Test Changes (OnlyPaws.t.sol):
+   - Added receive() function to allow test contract to accept ETH
+   - Updated setUp function to fund the test contract with initial balance
+   - Modified MockRewardsVault to return a constant non-zero reward
+   - Added initial reward distribution in setUp function
+
+4. Remaining Issues:
+   - BERA transfer still failing in test cases
+   - Possible issue with test contract not being able to receive ETH
+
+5. Next Steps:
+   - Debug BERA transfer failure in purchasePaw function
+   - Verify that test contract can properly receive and handle ETH
+   - Ensure proper mocking of BGT and BERA tokens in test environment
+
+6. Key Learnings:
+   - Importance of handling division by zero cases in reward calculations
+   - Necessity of proper ETH handling in both contract and test environments
+   - Complexity of reward distribution systems and the need for thorough testing
+
+7. Open Questions:
+   - Why is the BERA transfer still failing despite changes?
+   - Is there an issue with how the test contract is set up to receive ETH?
+   - Are there any discrepancies between the contract's expected behavior and the test setup?
+
+8. Major Contract Revisions (OnlyPaws.sol):
+   - Implemented rewardPerToken and lastTimeRewardApplicable functions
+   - Added rewardPerTokenStored and userRewardPerTokenPaid mappings
+   - Updated the reward distribution mechanism to align with StakingRewards contract
+   - Modified claimRewards to call harvestRewards before distributing rewards
+   - Replaced totalStaked with totalSupply for accurate reward calculations
+   - Implemented updateReward modifier for consistent reward updates
+
+9. Test Updates (OnlyPaws.t.sol):
+   - Updated setUp function to call harvestRewards after adding paw images
+   - Modified testRewardDistribution and testRewardDistributionOverTime to call harvestRewards at appropriate intervals
+   - Adjusted reward calculations in tests to reflect new distribution mechanism
+
+10. Key Changes:
+    - Rewards are now calculated based on the time since last update and the current total supply
+    - Harvesting rewards updates the global reward rate and finish time
+    - Claiming rewards now ensures the latest rewards are harvested before distribution
+
+11. Next Steps:
+    - Verify that the new reward distribution mechanism works as expected
+    - Ensure that expired stakes (past 7 days) no longer affect future rewards
+    - Fine-tune the tests to cover edge cases in the new reward system
+
+This round focused on aligning the OnlyPaws contract more closely with the StakingRewards contract, implementing a more accurate and fair reward distribution system, and updating the tests to reflect these changes.
