@@ -110,19 +110,12 @@ contract OnlyPaws {
 
         updateReward(msg.sender);
 
-        pawImages[pawId].owner = msg.sender;
+        UserStake storage stake = userStakes[msg.sender][pawId];
+        stake.amount = 1;
+        stake.timestamp = block.timestamp;
+
         userPaws[msg.sender].push(pawId);
-
-        // Initialize stake
-        userStakes[msg.sender][pawId] = UserStake({
-            amount: 1,
-            timestamp: block.timestamp
-        });
-
-        lastUpdateTimePerUser[msg.sender] = block.timestamp;
-
-        (bool success, ) = pawImages[pawId].owner.call{value: price}("");
-        require(success, "BERA transfer failed");
+        addActiveStaker(msg.sender);
         totalSupply += 1;
 
         emit PawPurchased(msg.sender, pawId);
@@ -148,18 +141,24 @@ contract OnlyPaws {
     }
 
     function notifyRewardAmount(uint256 reward) internal {
-        console.log("Notifying reward amount:", reward);
+        updateReward(address(0));
+
         if (block.timestamp >= finishAt) {
             rewardRate = reward / REWARD_DURATION;
         } else {
-            uint256 remainingRewards = (finishAt - block.timestamp) *
-                rewardRate;
-            rewardRate = (reward + remainingRewards) / REWARD_DURATION;
+            uint256 remaining = finishAt - block.timestamp;
+            uint256 leftover = remaining * rewardRate;
+            rewardRate = (reward + leftover) / REWARD_DURATION;
         }
-        lastUpdateTime = block.timestamp;
+
+        require(
+            rewardRate * REWARD_DURATION <= address(this).balance,
+            "Reward amount > balance"
+        );
+
         finishAt = block.timestamp + REWARD_DURATION;
-        console.log("New reward rate:", rewardRate);
-        console.log("New finish time:", finishAt);
+        lastUpdateTime = block.timestamp;
+
         emit RewardsDistributed(reward);
     }
 
@@ -189,35 +188,58 @@ contract OnlyPaws {
     }
 
     function rewardPerToken() public view returns (uint256) {
-        if (totalSupply == 0) {
+        if (getTotalActiveTime() == 0) {
             return rewardPerTokenStored;
         }
+
+        console.log("calculating rewardPerToken()");
+        console.log("rewardPerTokenStored:", rewardPerTokenStored);
+        console.log("rewardRate:", rewardRate);
+        console.log("lastTimeRewardApplicable()", lastTimeRewardApplicable());
+        console.log("lastUpdateTime", lastUpdateTime);
         return
             rewardPerTokenStored +
-            (rewardRate *
-                (lastTimeRewardApplicable() - lastUpdateTime) *
-                REWARD_PRECISION) /
-            totalSupply;
+            ((rewardRate * (lastTimeRewardApplicable() - lastUpdateTime)) /
+                getTotalActiveTime());
     }
+
     function earned(address account) public view returns (uint256) {
         uint256[] storage pawIds = userPaws[account];
-        uint256 stakedAmount = 0;
+        uint256 rewardedTime = 0;
 
-        // Calculate total active stakes for this account
+        console.log("Paw IDs:", pawIds.length);
         for (uint256 i = 0; i < pawIds.length; i++) {
             UserStake storage stake = userStakes[account][pawIds[i]];
-            if (
-                stake.amount > 0 &&
-                block.timestamp <= stake.timestamp + REWARD_DURATION
-            ) {
-                stakedAmount += stake.amount;
+            console.log("Paw ID:", pawIds[i]);
+            console.log("Stake amount:", stake.amount);
+            if (stake.amount > 0) {
+                uint256 endTime = _min(
+                    block.timestamp,
+                    stake.timestamp + REWARD_DURATION
+                );
+                uint256 startTime = _max(
+                    lastUpdateTimePerUser[account],
+                    stake.timestamp
+                );
+                console.log("startTime:", startTime);
+                console.log("endTime:", endTime);
+
+                if (endTime > startTime) {
+                    uint256 duration = endTime - startTime;
+                    rewardedTime += duration;
+                }
             }
         }
 
+        console.log("rewardedTime:", rewardedTime);
+        console.log("getTotalActiveTime()", getTotalActiveTime());
+        console.log("rewardPerToken()", rewardPerToken());
+        console.log("userRewardPerTokenPaid:", userRewardPerTokenPaid[account]);
+        console.log("rewards:", rewards[account]);
         return
-            ((stakedAmount *
-                (rewardPerToken() - userRewardPerTokenPaid[account])) /
-                REWARD_PRECISION) + rewards[account];
+            (rewardedTime *
+                (rewardPerToken() - userRewardPerTokenPaid[account])) +
+            rewards[account];
     }
 
     function getTotalActiveTime() internal view returns (uint256) {
@@ -225,18 +247,19 @@ contract OnlyPaws {
         address[] memory stakers = getActiveStakers();
 
         for (uint256 i = 0; i < stakers.length; i++) {
-            uint256[] storage stakerPaws = userPaws[stakers[i]];
+            address staker = stakers[i];
+            uint256[] storage stakerPaws = userPaws[staker];
             for (uint256 j = 0; j < stakerPaws.length; j++) {
-                UserStake storage stake = userStakes[stakers[i]][stakerPaws[j]];
-                if (
-                    stake.amount > 0 &&
-                    block.timestamp <= stake.timestamp + REWARD_DURATION
-                ) {
+                UserStake storage stake = userStakes[staker][stakerPaws[j]];
+                if (stake.amount > 0) {
                     uint256 endTime = _min(
                         block.timestamp,
                         stake.timestamp + REWARD_DURATION
                     );
-                    uint256 startTime = stake.timestamp;
+                    uint256 startTime = _max(
+                        lastUpdateTimePerUser[staker],
+                        stake.timestamp
+                    );
                     if (endTime > startTime) {
                         totalTime += endTime - startTime;
                     }
@@ -257,13 +280,16 @@ contract OnlyPaws {
             emit RewardsClaimed(msg.sender, reward);
         }
     }
+
     function updateReward(address account) internal {
         rewardPerTokenStored = rewardPerToken();
+        console.log("Reward per token stored:", rewardPerTokenStored);
         lastUpdateTime = lastTimeRewardApplicable();
-
+        console.log("Last update time:", lastUpdateTime);
         if (account != address(0)) {
             rewards[account] = earned(account);
             userRewardPerTokenPaid[account] = rewardPerTokenStored;
+            lastUpdateTimePerUser[account] = lastTimeRewardApplicable();
             updateExpiredStakes(account);
         }
     }

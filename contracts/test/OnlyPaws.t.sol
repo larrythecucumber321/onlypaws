@@ -107,7 +107,6 @@ contract OnlyPawsTest is Test {
         vm.deal(BGT_ADDRESS, INITIAL_BALANCE * 100); // Ensure MockBGT has enough ETH
 
         bgtToken.mint(address(rewardsVault), WEEKLY_REWARD * 52);
-        bgtToken.mint(address(onlyPaws), WEEKLY_REWARD * 52 * 10);
 
         console.log(
             "RewardsVault BGT balance:",
@@ -128,7 +127,7 @@ contract OnlyPawsTest is Test {
         vm.stopPrank();
     }
 
-    function testRewardDistribution() public {
+    function testRewardDistributionSimple() public {
         vm.prank(user1);
         onlyPaws.purchasePaw{value: PAW_PRICE}(1);
 
@@ -161,72 +160,78 @@ contract OnlyPawsTest is Test {
         );
     }
 
-    // function testRewardDistributionOverTime() public {
-    //     vm.prank(user1);
-    //     onlyPaws.purchasePaw{value: PAW_PRICE}(1);
+    function testRewardDistributionOverTime() public {
+        vm.prank(user1);
+        onlyPaws.purchasePaw{value: PAW_PRICE}(1);
 
-    //     vm.warp(block.timestamp + 1 days);
-    //     onlyPaws.harvestRewards();
+        vm.warp(block.timestamp + 3 days);
 
-    //     vm.prank(user2);
-    //     onlyPaws.purchasePaw{value: PAW_PRICE}(2);
+        vm.prank(user2);
+        onlyPaws.purchasePaw{value: PAW_PRICE}(2);
 
-    //     vm.warp(block.timestamp + 4 days);
-    //     onlyPaws.harvestRewards();
+        vm.warp(block.timestamp + 4 days);
 
-    //     vm.prank(user3);
-    //     onlyPaws.purchasePaw{value: PAW_PRICE}(3);
+        vm.prank(user3);
+        onlyPaws.purchasePaw{value: PAW_PRICE}(3);
 
-    //     vm.warp(block.timestamp + 3 days);
-    //     onlyPaws.harvestRewards();
+        onlyPaws.harvestRewards();
 
-    //     uint256 user1BalanceBefore = user1.balance;
-    //     vm.prank(user1);
-    //     onlyPaws.claimRewards();
-    //     uint256 user1Rewards = user1.balance - user1BalanceBefore;
+        vm.warp(block.timestamp + 7 days);
 
-    //     uint256 user2BalanceBefore = user2.balance;
-    //     vm.prank(user2);
-    //     onlyPaws.claimRewards();
-    //     uint256 user2Rewards = user2.balance - user2BalanceBefore;
+        uint256 user1BalanceBefore = user1.balance;
+        vm.prank(user1);
+        onlyPaws.claimRewards();
+        uint256 user1Rewards = user1.balance - user1BalanceBefore;
 
-    //     uint256 user3BalanceBefore = user3.balance;
-    //     vm.prank(user3);
-    //     onlyPaws.claimRewards();
-    //     uint256 user3Rewards = user3.balance - user3BalanceBefore;
+        uint256 user2BalanceBefore = user2.balance;
+        vm.prank(user2);
+        onlyPaws.claimRewards();
+        uint256 user2Rewards = user2.balance - user2BalanceBefore;
 
-    //     console.log("User 1 rewards:", user1Rewards);
-    //     console.log("User 2 rewards:", user2Rewards);
-    //     console.log("User 3 rewards:", user3Rewards);
+        uint256 user3BalanceBefore = user3.balance;
+        vm.prank(user3);
+        onlyPaws.claimRewards();
+        uint256 user3Rewards = user3.balance - user3BalanceBefore;
 
-    //     assertGt(user1Rewards, 0, "User 1 should have non-zero rewards");
-    //     assertGt(user2Rewards, 0, "User 2 should have non-zero rewards");
-    //     assertGt(user3Rewards, 0, "User 3 should have non-zero rewards");
-    //     assertGt(
-    //         user1Rewards,
-    //         user3Rewards,
-    //         "User 1 should have more rewards than User 3"
-    //     );
-    //     assertGt(
-    //         user2Rewards,
-    //         user3Rewards,
-    //         "User 2 should have more rewards than User 3"
-    //     );
-    // }
+        console.log("User 1 rewards:", user1Rewards);
+        console.log("User 2 rewards:", user2Rewards);
+        console.log("User 3 rewards:", user3Rewards);
 
-    // function testRewardExpiration() public {
-    //     vm.prank(user1);
-    //     onlyPaws.purchasePaw{value: PAW_PRICE}(1);
+        assertGt(user1Rewards, 0, "User 1 should have non-zero rewards");
+        assertGt(user2Rewards, 0, "User 2 should have non-zero rewards");
+        assertEq(user3Rewards, 0, "User 3 should have zero rewards");
+        assertGt(
+            user1Rewards,
+            user3Rewards,
+            "User 1 should have more rewards than User 3"
+        );
+        assertGt(
+            user2Rewards,
+            user3Rewards,
+            "User 2 should have more rewards than User 3"
+        );
+    }
 
-    //     vm.warp(block.timestamp + 8 days);
-    //     onlyPaws.harvestRewards();
+    function testRewardExpiration() public {
+        vm.startPrank(user1);
+        onlyPaws.purchasePaw{value: PAW_PRICE}(1);
 
-    //     uint256 user1BalanceBefore = user1.balance;
-    //     vm.prank(user1);
-    //     onlyPaws.claimRewards();
-    //     uint256 user1Rewards = user1.balance - user1BalanceBefore;
+        vm.warp(block.timestamp + 7 days);
+        onlyPaws.claimRewards();
+        uint256 user1BalanceBefore = user1.balance;
 
-    //     console.log("User 1 rewards after expiration:", user1Rewards);
-    //     assertEq(user1Rewards, 0, "User 1 should have no rewards after 7 days");
-    // }
+        console.log("User 1 rewards at expiration:", user1BalanceBefore);
+        onlyPaws.harvestRewards();
+
+        vm.warp(block.timestamp + 3 days);
+        onlyPaws.claimRewards();
+        uint256 user1RewardsAfter = user1.balance - user1BalanceBefore;
+
+        console.log("User 1 rewards after expiration:", user1RewardsAfter);
+        assertEq(
+            user1RewardsAfter,
+            0,
+            "User 1 should have no rewards after 7 days"
+        );
+    }
 }
