@@ -123,6 +123,7 @@ contract OnlyPaws {
 
         (bool success, ) = pawImages[pawId].owner.call{value: price}("");
         require(success, "BERA transfer failed");
+        totalSupply += 1;
 
         emit PawPurchased(msg.sender, pawId);
     }
@@ -171,7 +172,7 @@ contract OnlyPaws {
             UserStake storage stake = userStakes[account][pawId];
             if (stake.amount > 0) {
                 if (block.timestamp > stake.timestamp + REWARD_DURATION) {
-                    totalSupply--;
+                    totalSupply -= stake.amount;
                     stake.amount = 0;
                 } else {
                     activeStakeCount++;
@@ -179,12 +180,10 @@ contract OnlyPaws {
             }
         }
 
-        // If user has no more active stakes, remove them from active stakers
         if (activeStakeCount == 0) {
             removeActiveStaker(account);
         }
     }
-
     function lastTimeRewardApplicable() public view returns (uint256) {
         return _min(finishAt, block.timestamp);
     }
@@ -200,41 +199,25 @@ contract OnlyPaws {
                 REWARD_PRECISION) /
             totalSupply;
     }
-
     function earned(address account) public view returns (uint256) {
-        uint256 totalReward = 0;
         uint256[] storage pawIds = userPaws[account];
+        uint256 stakedAmount = 0;
 
-        console.log("Calculating earned for account:", account);
-
+        // Calculate total active stakes for this account
         for (uint256 i = 0; i < pawIds.length; i++) {
             UserStake storage stake = userStakes[account][pawIds[i]];
             if (
                 stake.amount > 0 &&
                 block.timestamp <= stake.timestamp + REWARD_DURATION
             ) {
-                uint256 endTime = _min(
-                    block.timestamp,
-                    stake.timestamp + REWARD_DURATION
-                );
-                uint256 startTime = stake.timestamp;
-
-                // Calculate reward based on the initial reward rate
-                uint256 duration = endTime - startTime;
-                // Use the base reward rate (initial rate) instead of current rate
-                uint256 stakeRewardRate = 1e15; // 0.001 BGT per second (from MockRewardsVault)
-                uint256 reward = (duration * stakeRewardRate);
-                totalReward += reward;
-
-                console.log("Paw ID:", pawIds[i]);
-                console.log("Stake start time:", startTime);
-                console.log("Stake end time:", endTime);
-                console.log("Duration:", duration);
-                console.log("Reward:", reward);
+                stakedAmount += stake.amount;
             }
         }
 
-        return totalReward + rewards[account];
+        return
+            ((stakedAmount *
+                (rewardPerToken() - userRewardPerTokenPaid[account])) /
+                REWARD_PRECISION) + rewards[account];
     }
 
     function getTotalActiveTime() internal view returns (uint256) {
@@ -264,7 +247,6 @@ contract OnlyPaws {
     }
 
     function claimRewards() external {
-        harvestRewards();
         updateReward(msg.sender);
         uint256 reward = rewards[msg.sender];
         console.log("Pending rewards to claim:", reward);
@@ -278,6 +260,7 @@ contract OnlyPaws {
     function updateReward(address account) internal {
         rewardPerTokenStored = rewardPerToken();
         lastUpdateTime = lastTimeRewardApplicable();
+
         if (account != address(0)) {
             rewards[account] = earned(account);
             userRewardPerTokenPaid[account] = rewardPerTokenStored;
