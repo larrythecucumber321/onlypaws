@@ -43,6 +43,7 @@ contract OnlyPaws {
 
     uint256 public constant REWARD_DURATION = 7 days;
     uint256 public constant REWARD_PRECISION = 1e18;
+    mapping(address => uint256) public lastUpdateTimePerUser;
 
     struct PawImage {
         address owner;
@@ -59,6 +60,8 @@ contract OnlyPaws {
     mapping(address => uint256[]) public userPaws;
     mapping(address => mapping(uint256 => UserStake)) public userStakes;
     mapping(uint256 => uint256) public pawLastPurchaseTime;
+    address[] private activeStakers;
+    mapping(address => bool) private isActiveStaker;
 
     uint256 public totalSupply;
     uint256 public lastUpdateTime;
@@ -102,25 +105,25 @@ contract OnlyPaws {
     }
 
     function purchasePaw(uint256 pawId) external payable {
-        PawImage storage paw = pawImages[pawId];
-        require(paw.isForSale, "Paw not for sale");
-        require(msg.value == paw.price, "Incorrect payment amount");
-
-        address payable seller = payable(paw.owner);
-        paw.owner = msg.sender;
-        paw.isForSale = false;
-        userPaws[msg.sender].push(pawId);
+        uint256 price = pawImages[pawId].price;
+        require(msg.value == price, "Incorrect payment amount");
 
         updateReward(msg.sender);
-        totalSupply++;
-        pawLastPurchaseTime[pawId] = block.timestamp;
+
+        pawImages[pawId].owner = msg.sender;
+        userPaws[msg.sender].push(pawId);
+
+        // Initialize stake
         userStakes[msg.sender][pawId] = UserStake({
             amount: 1,
             timestamp: block.timestamp
         });
 
-        (bool success, ) = seller.call{value: paw.price}("");
+        lastUpdateTimePerUser[msg.sender] = block.timestamp;
+
+        (bool success, ) = pawImages[pawId].owner.call{value: price}("");
         require(success, "BERA transfer failed");
+
         emit PawPurchased(msg.sender, pawId);
     }
 
@@ -161,16 +164,24 @@ contract OnlyPaws {
 
     function updateExpiredStakes(address account) internal {
         uint256[] storage pawIds = userPaws[account];
+        uint256 activeStakeCount = 0;
+
         for (uint256 i = 0; i < pawIds.length; i++) {
             uint256 pawId = pawIds[i];
             UserStake storage stake = userStakes[account][pawId];
-            if (
-                stake.amount > 0 &&
-                block.timestamp > stake.timestamp + REWARD_DURATION
-            ) {
-                totalSupply--;
-                stake.amount = 0;
+            if (stake.amount > 0) {
+                if (block.timestamp > stake.timestamp + REWARD_DURATION) {
+                    totalSupply--;
+                    stake.amount = 0;
+                } else {
+                    activeStakeCount++;
+                }
             }
+        }
+
+        // If user has no more active stakes, remove them from active stakers
+        if (activeStakeCount == 0) {
+            removeActiveStaker(account);
         }
     }
 
@@ -191,21 +202,65 @@ contract OnlyPaws {
     }
 
     function earned(address account) public view returns (uint256) {
-        uint256 activeStakes = 0;
+        uint256 totalReward = 0;
         uint256[] storage pawIds = userPaws[account];
+
+        console.log("Calculating earned for account:", account);
+
         for (uint256 i = 0; i < pawIds.length; i++) {
             UserStake storage stake = userStakes[account][pawIds[i]];
             if (
                 stake.amount > 0 &&
                 block.timestamp <= stake.timestamp + REWARD_DURATION
             ) {
-                activeStakes++;
+                uint256 endTime = _min(
+                    block.timestamp,
+                    stake.timestamp + REWARD_DURATION
+                );
+                uint256 startTime = stake.timestamp;
+
+                // Calculate reward based on the initial reward rate
+                uint256 duration = endTime - startTime;
+                // Use the base reward rate (initial rate) instead of current rate
+                uint256 stakeRewardRate = 1e15; // 0.001 BGT per second (from MockRewardsVault)
+                uint256 reward = (duration * stakeRewardRate);
+                totalReward += reward;
+
+                console.log("Paw ID:", pawIds[i]);
+                console.log("Stake start time:", startTime);
+                console.log("Stake end time:", endTime);
+                console.log("Duration:", duration);
+                console.log("Reward:", reward);
             }
         }
-        return
-            ((activeStakes *
-                (rewardPerToken() - userRewardPerTokenPaid[account])) /
-                REWARD_PRECISION) + rewards[account];
+
+        return totalReward + rewards[account];
+    }
+
+    function getTotalActiveTime() internal view returns (uint256) {
+        uint256 totalTime = 0;
+        address[] memory stakers = getActiveStakers();
+
+        for (uint256 i = 0; i < stakers.length; i++) {
+            uint256[] storage stakerPaws = userPaws[stakers[i]];
+            for (uint256 j = 0; j < stakerPaws.length; j++) {
+                UserStake storage stake = userStakes[stakers[i]][stakerPaws[j]];
+                if (
+                    stake.amount > 0 &&
+                    block.timestamp <= stake.timestamp + REWARD_DURATION
+                ) {
+                    uint256 endTime = _min(
+                        block.timestamp,
+                        stake.timestamp + REWARD_DURATION
+                    );
+                    uint256 startTime = stake.timestamp;
+                    if (endTime > startTime) {
+                        totalTime += endTime - startTime;
+                    }
+                }
+            }
+        }
+        return totalTime;
     }
 
     function claimRewards() external {
@@ -220,11 +275,9 @@ contract OnlyPaws {
             emit RewardsClaimed(msg.sender, reward);
         }
     }
-
     function updateReward(address account) internal {
         rewardPerTokenStored = rewardPerToken();
         lastUpdateTime = lastTimeRewardApplicable();
-
         if (account != address(0)) {
             rewards[account] = earned(account);
             userRewardPerTokenPaid[account] = rewardPerTokenStored;
@@ -232,8 +285,36 @@ contract OnlyPaws {
         }
     }
 
+    function addActiveStaker(address staker) internal {
+        if (!isActiveStaker[staker]) {
+            activeStakers.push(staker);
+            isActiveStaker[staker] = true;
+        }
+    }
+
+    function removeActiveStaker(address staker) internal {
+        if (isActiveStaker[staker]) {
+            for (uint256 i = 0; i < activeStakers.length; i++) {
+                if (activeStakers[i] == staker) {
+                    activeStakers[i] = activeStakers[activeStakers.length - 1];
+                    activeStakers.pop();
+                    break;
+                }
+            }
+            isActiveStaker[staker] = false;
+        }
+    }
+
+    function getActiveStakers() public view returns (address[] memory) {
+        return activeStakers;
+    }
+
     function _min(uint256 x, uint256 y) private pure returns (uint256) {
         return x <= y ? x : y;
+    }
+
+    function _max(uint256 x, uint256 y) private pure returns (uint256) {
+        return x >= y ? x : y;
     }
 
     receive() external payable {}

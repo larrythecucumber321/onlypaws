@@ -1,3 +1,41 @@
+## Intro:
+
+Core Objectives
+1. Paw Ownership and Purchase:
+Users can purchase digital assets called "Paws" by paying a specified price in Ether.
+Each Paw has a unique ID and a set price, which is managed by the contract.
+Ownership of Paws is transferred to the buyer upon purchase, and the seller receives the payment.
+2. Reward Distribution:
+Rewards are distributed to users based on the number of Paws they own and the duration of ownership.
+The contract manages the staking and reward distribution process internally, without requiring users to stake tokens themselves.
+Rewards are calculated based on a reward rate, which is updated periodically when rewards are harvested.
+3. Time-Limited Rewards:
+Rewards are only distributed for a limited time (e.g., 7 days) after a Paw is purchased.
+After this period, the Paw is considered "expired" for reward purposes, and the user no longer earns rewards from it.
+The contract automatically updates and clears expired stakes to ensure accurate reward distribution.
+4. Reward Harvesting and Claiming:
+The contract periodically harvests rewards from a rewards vault, which are then distributed to eligible Paw owners.
+Users can claim their accumulated rewards, which are transferred to them in Ether.
+The contract ensures that the latest rewards are harvested before users claim their rewards.
+5. Internal Management:
+The contract uses mappings to track Paw ownership, prices, user balances, and reward entitlements.
+It includes mechanisms to update reward calculations and handle expired stakes automatically.
+The contract interacts with a mock rewards vault and a mock BGT token for testing purposes.
+Key Differences from Traditional Staking
+No Direct User Staking: Unlike traditional staking contracts where users stake tokens themselves, OnlyPaws handles the staking process internally. Users simply purchase Paws, and the contract manages the staking and reward distribution.
+Time-Limited Rewards: Rewards are only available for a limited time after a Paw is purchased. This requires the contract to track the purchase time and automatically clear expired stakes.
+Administered by Contract: The contract administers the entire process, from Paw purchase to reward distribution, without requiring user intervention beyond the initial purchase and reward claiming.
+Reward Rate Management: The reward rate is dynamically updated based on the total supply of Paws and the time elapsed since the last update. This ensures a fair distribution of rewards based on current participation.
+Technical Components
+Mappings: Used to track Paw ownership (pawOwners), prices (pawPrices), user balances (balanceOf), and reward entitlements (rewards).
+Modifiers: updateReward ensures that reward calculations are up-to-date whenever a user interacts with the contract.
+Functions:
+purchasePaw: Allows users to buy Paws and updates ownership and balances.
+claimRewards: Enables users to claim their accumulated rewards.
+harvestRewards: Harvests rewards from the vault and updates the reward rate.
+updateExpiredStakes: Clears expired stakes to maintain accurate reward distribution.
+Events: Emit logs for key actions like Paw purchases, reward distributions, and reward claims.
+
 Log: OnlyPaws Contract Development and Testing
 
 1. Initial Problem:
