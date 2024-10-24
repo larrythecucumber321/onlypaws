@@ -53,17 +53,19 @@ contract OnlyPaws {
         bool isForSale;
     }
 
-    struct PawStake {
+    struct StakeInfo {
+        address user;
+        uint256 pawId;
         uint256 amount;
         uint256 expiryTime;
-        bool isActive;
     }
 
     mapping(uint256 => PawImage) public pawImages;
-    mapping(address => mapping(uint256 => PawStake)) public pawStakes;
-    mapping(address => uint256[]) public userPaws;
-    mapping(address => bool) public isActiveUser;
-    address[] private activeUsers;
+    mapping(address => mapping(uint256 => bool)) public userHasPaw;
+    mapping(address => uint256) public userTotalStake;
+
+    // Chronologically ordered array of stakes
+    StakeInfo[] private orderedStakes;
 
     event PawImageAdded(
         uint256 indexed pawId,
@@ -102,20 +104,30 @@ contract OnlyPaws {
     }
 
     function purchasePaw(uint256 pawId) external payable {
+        // Clean up expired stakes first
+        purgeExpiredStakes();
+
         PawImage storage paw = pawImages[pawId];
         require(paw.isForSale, "Paw not for sale");
         require(msg.value == paw.price, "Incorrect payment amount");
+        require(!userHasPaw[msg.sender][pawId], "Already owns this paw");
 
-        PawStake storage stake = pawStakes[msg.sender][pawId];
-        require(!stake.isActive, "Paw already staked");
+        uint256 expiryTime = block.timestamp + REWARD_DURATION;
 
-        stake.amount = PAW_STAKE_AMOUNT;
-        stake.expiryTime = block.timestamp + REWARD_DURATION;
-        stake.isActive = true;
+        // Add new stake to ordered array
+        orderedStakes.push(
+            StakeInfo({
+                user: msg.sender,
+                pawId: pawId,
+                amount: PAW_STAKE_AMOUNT,
+                expiryTime: expiryTime
+            })
+        );
 
-        userPaws[msg.sender].push(pawId);
-        addActiveUser(msg.sender);
+        userHasPaw[msg.sender][pawId] = true;
+        userTotalStake[msg.sender] += PAW_STAKE_AMOUNT;
 
+        // Delegate stake to user
         stakingToken.mint(address(this), PAW_STAKE_AMOUNT);
         stakingToken.approve(address(vault), PAW_STAKE_AMOUNT);
         vault.delegateStake(msg.sender, PAW_STAKE_AMOUNT);
@@ -124,62 +136,46 @@ contract OnlyPaws {
         emit PawStaked(msg.sender, pawId, PAW_STAKE_AMOUNT);
     }
 
-    function checkExpiredStakes() public {
-        for (uint256 i = 0; i < activeUsers.length; i++) {
-            address user = activeUsers[i];
-            uint256[] storage pawIds = userPaws[user];
+    function purgeExpiredStakes() public {
+        uint256 i = 0;
+        uint256 currentTime = block.timestamp;
 
-            for (uint256 j = 0; j < pawIds.length; j++) {
-                PawStake storage stake = pawStakes[user][pawIds[j]];
-                if (stake.isActive && block.timestamp > stake.expiryTime) {
-                    vault.delegateWithdraw(user, stake.amount);
-                    stakingToken.burn(address(this), stake.amount);
-                    stake.isActive = false;
-                    emit PawUnstaked(user, pawIds[j], stake.amount);
-                }
+        // Continue until we find a non-expired stake or process all stakes
+        while (
+            i < orderedStakes.length &&
+            orderedStakes[i].expiryTime < currentTime
+        ) {
+            StakeInfo memory stake = orderedStakes[i];
+
+            // Withdraw stake from vault
+            vault.delegateWithdraw(stake.user, stake.amount);
+            stakingToken.burn(address(this), stake.amount);
+
+            // Update user state
+            userHasPaw[stake.user][stake.pawId] = false;
+            userTotalStake[stake.user] -= stake.amount;
+
+            emit PawUnstaked(stake.user, stake.pawId, stake.amount);
+            i++;
+        }
+
+        // Remove expired stakes from array
+        if (i > 0) {
+            for (uint256 j = i; j < orderedStakes.length; j++) {
+                orderedStakes[j - i] = orderedStakes[j];
             }
-
-            if (calculateUserShare(user) == 0) {
-                removeActiveUser(user);
+            for (uint256 j = 0; j < i; j++) {
+                orderedStakes.pop();
             }
         }
     }
 
-    function calculateUserShare(address user) public view returns (uint256) {
-        uint256 activeStakes = 0;
-        uint256[] storage pawIds = userPaws[user];
-
-        for (uint256 i = 0; i < pawIds.length; i++) {
-            PawStake storage stake = pawStakes[user][pawIds[i]];
-            if (stake.isActive && block.timestamp <= stake.expiryTime) {
-                activeStakes += stake.amount;
-            }
-        }
-        return activeStakes;
+    function getActiveStakes() public view returns (StakeInfo[] memory) {
+        return orderedStakes;
     }
 
-    function addActiveUser(address user) internal {
-        if (!isActiveUser[user]) {
-            activeUsers.push(user);
-            isActiveUser[user] = true;
-        }
-    }
-
-    function removeActiveUser(address user) internal {
-        if (isActiveUser[user]) {
-            for (uint256 i = 0; i < activeUsers.length; i++) {
-                if (activeUsers[i] == user) {
-                    activeUsers[i] = activeUsers[activeUsers.length - 1];
-                    activeUsers.pop();
-                    break;
-                }
-            }
-            isActiveUser[user] = false;
-        }
-    }
-
-    function getActiveUsers() public view returns (address[] memory) {
-        return activeUsers;
+    function getUserStake(address user) public view returns (uint256) {
+        return userTotalStake[user];
     }
 
     receive() external payable {}

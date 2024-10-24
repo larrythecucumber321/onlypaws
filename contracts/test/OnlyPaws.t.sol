@@ -31,10 +31,11 @@ contract OnlyPawsTest is Test {
         vm.deal(user3, INITIAL_BALANCE);
         vm.deal(address(this), INITIAL_BALANCE);
 
+        // Add initial paw images
         vm.startPrank(address(this));
-        onlyPaws.addPawImage(1, PAW_PRICE);
-        onlyPaws.addPawImage(2, PAW_PRICE);
-        onlyPaws.addPawImage(3, PAW_PRICE);
+        for (uint256 i = 1; i <= 10; i++) {
+            onlyPaws.addPawImage(i, PAW_PRICE);
+        }
         vm.stopPrank();
     }
 
@@ -46,8 +47,9 @@ contract OnlyPawsTest is Test {
         vm.stopPrank();
 
         // User2 purchases one paw
-        vm.prank(user2);
+        vm.startPrank(user2);
         onlyPaws.purchasePaw{value: PAW_PRICE}(3);
+        vm.stopPrank();
 
         // Check delegated stakes
         uint256 user1Stake = vault.getDelegateStake(user1, address(onlyPaws));
@@ -63,15 +65,17 @@ contract OnlyPawsTest is Test {
 
     function testStakeTimingAndExpiry() public {
         // User1 purchases paw at start
-        vm.prank(user1);
+        vm.startPrank(user1);
         onlyPaws.purchasePaw{value: PAW_PRICE}(1);
+        vm.stopPrank();
 
         // Advance time halfway through period
         vm.warp(block.timestamp + 3.5 days);
 
         // User2 purchases paw
-        vm.prank(user2);
+        vm.startPrank(user2);
         onlyPaws.purchasePaw{value: PAW_PRICE}(2);
+        vm.stopPrank();
 
         uint256 user1Stake = vault.getDelegateStake(user1, address(onlyPaws));
         uint256 user2Stake = vault.getDelegateStake(user2, address(onlyPaws));
@@ -85,7 +89,11 @@ contract OnlyPawsTest is Test {
 
         // Advance time to expire User1's stake
         vm.warp(block.timestamp + 4 days);
-        onlyPaws.checkExpiredStakes();
+
+        // User3 purchase will trigger purge of expired stakes
+        vm.startPrank(user3);
+        onlyPaws.purchasePaw{value: PAW_PRICE}(3);
+        vm.stopPrank();
 
         user1Stake = vault.getDelegateStake(user1, address(onlyPaws));
         user2Stake = vault.getDelegateStake(user2, address(onlyPaws));
@@ -99,86 +107,88 @@ contract OnlyPawsTest is Test {
         );
     }
 
-    function testPawPurchaseAndStaking() public {
+    function testChronologicalOrder() public {
+        // Create stakes at different times
         vm.startPrank(user1);
         onlyPaws.purchasePaw{value: PAW_PRICE}(1);
-
-        // Verify stake
-        (uint256 amount, uint256 expiryTime, bool isActive) = onlyPaws
-            .pawStakes(user1, 1);
-        assertTrue(isActive, "Stake should be active");
-        assertEq(amount, onlyPaws.PAW_STAKE_AMOUNT(), "Incorrect stake amount");
-        assertEq(
-            expiryTime,
-            block.timestamp + onlyPaws.REWARD_DURATION(),
-            "Incorrect expiry time"
-        );
-
-        // Verify delegation
-        uint256 delegatedStake = vault.getDelegateStake(
-            user1,
-            address(onlyPaws)
-        );
-        assertEq(
-            delegatedStake,
-            onlyPaws.PAW_STAKE_AMOUNT(),
-            "Incorrect delegated stake amount"
-        );
-
         vm.stopPrank();
+
+        vm.warp(block.timestamp + 1 days);
+        vm.startPrank(user2);
+        onlyPaws.purchasePaw{value: PAW_PRICE}(2);
+        vm.stopPrank();
+
+        vm.warp(block.timestamp + 1 days);
+        vm.startPrank(user3);
+        onlyPaws.purchasePaw{value: PAW_PRICE}(3);
+        vm.stopPrank();
+
+        OnlyPaws.StakeInfo[] memory stakes = onlyPaws.getActiveStakes();
+
+        // Verify chronological ordering
+        for (uint256 i = 1; i < stakes.length; i++) {
+            assertTrue(
+                stakes[i].expiryTime > stakes[i - 1].expiryTime,
+                "Stakes should be in chronological order"
+            );
+        }
     }
 
-    function testStakeExpiry() public {
-        vm.startPrank(user1);
-        onlyPaws.purchasePaw{value: PAW_PRICE}(1);
-
-        uint256 initialStake = vault.getDelegateStake(user1, address(onlyPaws));
-        assertEq(
-            initialStake,
-            onlyPaws.PAW_STAKE_AMOUNT(),
-            "Initial stake incorrect"
-        );
-
-        vm.warp(block.timestamp + onlyPaws.REWARD_DURATION() + 1);
-        onlyPaws.checkExpiredStakes();
-
-        uint256 finalStake = vault.getDelegateStake(user1, address(onlyPaws));
-        assertEq(finalStake, 0, "Stake should be withdrawn after expiry");
-
-        (, , bool isActive) = onlyPaws.pawStakes(user1, 1);
-        assertFalse(isActive, "Stake should be inactive");
-
-        vm.stopPrank();
-    }
-
-    function testActiveUserTracking() public {
+    function testAutomaticPurgeOnPurchase() public {
+        // Create initial stakes
         vm.prank(user1);
         onlyPaws.purchasePaw{value: PAW_PRICE}(1);
-        assertTrue(onlyPaws.isActiveUser(user1), "User1 should be active");
 
-        vm.warp(block.timestamp + onlyPaws.REWARD_DURATION() + 1);
-        onlyPaws.checkExpiredStakes();
+        vm.warp(block.timestamp + 1 days);
+        vm.prank(user2);
+        onlyPaws.purchasePaw{value: PAW_PRICE}(2);
+
+        // Advance time to expire only first stake
+        vm.warp(block.timestamp + onlyPaws.REWARD_DURATION());
+
+        // New purchase should trigger purge of first stake only
+        vm.prank(user3);
+        onlyPaws.purchasePaw{value: PAW_PRICE}(3);
+
+        OnlyPaws.StakeInfo[] memory activeStakes = onlyPaws.getActiveStakes();
+
+        // Should have user2 and user3's stakes (user1's stake expired)
+        assertEq(activeStakes.length, 2, "Should have two active stakes");
         assertFalse(
-            onlyPaws.isActiveUser(user1),
-            "User1 should be inactive after expiry"
+            activeStakes[0].expiryTime > block.timestamp,
+            "First stake should be expired"
+        );
+        assertTrue(
+            activeStakes[1].expiryTime > block.timestamp,
+            "Second stake should not be expired"
         );
     }
 
-    function testMultipleDelegateStakes() public {
+    function testMultipleExpiredStakesPurge() public {
+        // Create multiple stakes
+        for (uint256 i = 0; i < 5; i++) {
+            address user = address(uint160(i + 1));
+            vm.deal(user, PAW_PRICE * 2); // Fund for both initial and later purchase
+            vm.startPrank(user);
+            onlyPaws.purchasePaw{value: PAW_PRICE}(i + 1);
+            vm.stopPrank();
+            vm.warp(block.timestamp + 1 days);
+        }
+
+        // Advance time to expire all stakes
+        vm.warp(block.timestamp + onlyPaws.REWARD_DURATION() + 1);
+
+        // New purchase should purge all expired stakes
         vm.startPrank(user1);
-        onlyPaws.purchasePaw{value: PAW_PRICE}(1);
-        onlyPaws.purchasePaw{value: PAW_PRICE}(2);
-
-        uint256 totalDelegatedStake = vault.getDelegateStake(
-            user1,
-            address(onlyPaws)
-        );
-        assertEq(
-            totalDelegatedStake,
-            onlyPaws.PAW_STAKE_AMOUNT() * 2,
-            "Incorrect total delegated stake"
-        );
-
+        onlyPaws.purchasePaw{value: PAW_PRICE}(6);
         vm.stopPrank();
+
+        OnlyPaws.StakeInfo[] memory activeStakes = onlyPaws.getActiveStakes();
+        assertEq(activeStakes.length, 1, "Should only have the new stake");
+        assertEq(
+            activeStakes[0].user,
+            user1,
+            "Only user1's new stake should remain"
+        );
     }
 }
