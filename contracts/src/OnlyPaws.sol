@@ -4,22 +4,20 @@ pragma solidity ^0.8.19;
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "forge-std/console.sol";
 
-interface IBGT is IERC20 {
-    function redeem(address receiver, uint256 amount) external;
+interface IBerachainRewardsVault {
+    function delegateStake(address user, uint256 amount) external;
+    function delegateWithdraw(address user, uint256 amount) external;
+    function getDelegateStake(
+        address account,
+        address delegate
+    ) external view returns (uint256);
 }
 
 interface IBerachainRewardsVaultFactory {
     function createRewardsVault(
         address stakingToken
     ) external returns (address);
-}
-
-interface IBerachainRewardsVault {
-    function delegateStake(address user, uint256 amount) external;
-    function delegateWithdraw(address user, uint256 amount) external;
-    function getReward(address account) external returns (uint256);
 }
 
 contract PawStakingToken is ERC20 {
@@ -45,7 +43,6 @@ contract OnlyPaws {
 
     IBerachainRewardsVault public immutable vault;
     PawStakingToken public immutable stakingToken;
-    IBGT public constant bgt = IBGT(0xbDa130737BDd9618301681329bF2e46A016ff9Ad);
 
     uint256 public constant REWARD_DURATION = 7 days;
     uint256 public constant PAW_STAKE_AMOUNT = 1e18;
@@ -84,16 +81,13 @@ contract OnlyPaws {
         uint256 indexed pawId,
         uint256 amount
     );
-    event RewardsClaimed(address indexed user, uint256 amount);
 
     constructor() {
-        address vaultFactory = 0x2B6e40f65D82A0cB98795bC7587a71bfa49fBB2B;
-
         stakingToken = new PawStakingToken(address(this));
         vault = IBerachainRewardsVault(
-            IBerachainRewardsVaultFactory(vaultFactory).createRewardsVault(
-                address(stakingToken)
-            )
+            IBerachainRewardsVaultFactory(
+                0x2B6e40f65D82A0cB98795bC7587a71bfa49fBB2B
+            ).createRewardsVault(address(stakingToken))
         );
     }
 
@@ -112,7 +106,6 @@ contract OnlyPaws {
         require(paw.isForSale, "Paw not for sale");
         require(msg.value == paw.price, "Incorrect payment amount");
 
-        // Create new stake
         PawStake storage stake = pawStakes[msg.sender][pawId];
         require(!stake.isActive, "Paw already staked");
 
@@ -123,7 +116,6 @@ contract OnlyPaws {
         userPaws[msg.sender].push(pawId);
         addActiveUser(msg.sender);
 
-        // Delegate stake to user
         stakingToken.mint(address(this), PAW_STAKE_AMOUNT);
         stakingToken.approve(address(vault), PAW_STAKE_AMOUNT);
         vault.delegateStake(msg.sender, PAW_STAKE_AMOUNT);
@@ -132,28 +124,23 @@ contract OnlyPaws {
         emit PawStaked(msg.sender, pawId, PAW_STAKE_AMOUNT);
     }
 
-    function harvestRewards() public {
-        checkExpiredStakes();
-        uint256 bgtReward = vault.getReward(address(this));
-        if (bgtReward > 0) {
-            bgt.redeem(address(this), bgtReward);
-        }
-    }
+    function checkExpiredStakes() public {
+        for (uint256 i = 0; i < activeUsers.length; i++) {
+            address user = activeUsers[i];
+            uint256[] storage pawIds = userPaws[user];
 
-    function claimRewards() external {
-        checkExpiredStakes();
-        uint256 balance = address(this).balance;
-        if (balance > 0) {
-            uint256 userShare = calculateUserShare(msg.sender);
-            if (userShare > 0) {
-                uint256 reward = (balance * userShare) / getTotalActiveStakes();
-                if (reward > 0) {
-                    (bool success, ) = payable(msg.sender).call{value: reward}(
-                        ""
-                    );
-                    require(success, "Transfer failed");
-                    emit RewardsClaimed(msg.sender, reward);
+            for (uint256 j = 0; j < pawIds.length; j++) {
+                PawStake storage stake = pawStakes[user][pawIds[j]];
+                if (stake.isActive && block.timestamp > stake.expiryTime) {
+                    vault.delegateWithdraw(user, stake.amount);
+                    stakingToken.burn(address(this), stake.amount);
+                    stake.isActive = false;
+                    emit PawUnstaked(user, pawIds[j], stake.amount);
                 }
+            }
+
+            if (calculateUserShare(user) == 0) {
+                removeActiveUser(user);
             }
         }
     }
@@ -169,36 +156,6 @@ contract OnlyPaws {
             }
         }
         return activeStakes;
-    }
-
-    function getTotalActiveStakes() public view returns (uint256) {
-        uint256 total = 0;
-        for (uint256 i = 0; i < activeUsers.length; i++) {
-            total += calculateUserShare(activeUsers[i]);
-        }
-        return total;
-    }
-
-    function checkExpiredStakes() public {
-        for (uint256 i = 0; i < activeUsers.length; i++) {
-            address user = activeUsers[i];
-            uint256[] storage pawIds = userPaws[user];
-
-            for (uint256 j = 0; j < pawIds.length; j++) {
-                PawStake storage stake = pawStakes[user][pawIds[j]];
-                if (stake.isActive && block.timestamp > stake.expiryTime) {
-                    vault.delegateWithdraw(user, stake.amount);
-                    stakingToken.burn(address(this), stake.amount);
-
-                    stake.isActive = false;
-                    emit PawUnstaked(user, pawIds[j], stake.amount);
-                }
-            }
-
-            if (calculateUserShare(user) == 0) {
-                removeActiveUser(user);
-            }
-        }
     }
 
     function addActiveUser(address user) internal {
