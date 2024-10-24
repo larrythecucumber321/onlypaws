@@ -17,7 +17,8 @@ interface IBerachainRewardsVaultFactory {
 }
 
 interface IBerachainRewardsVault {
-    function stake(uint256 amount) external;
+    function delegateStake(address user, uint256 amount) external;
+    function delegateWithdraw(address user, uint256 amount) external;
     function getReward(address account) external returns (uint256);
 }
 
@@ -32,6 +33,11 @@ contract PawStakingToken is ERC20 {
         require(msg.sender == onlyPaws, "Only onlyPaws can mint");
         _mint(to, amount);
     }
+
+    function burn(address from, uint256 amount) external {
+        require(msg.sender == onlyPaws, "Only onlyPaws can burn");
+        _burn(from, amount);
+    }
 }
 
 contract OnlyPaws {
@@ -42,8 +48,7 @@ contract OnlyPaws {
     IBGT public constant bgt = IBGT(0xbDa130737BDd9618301681329bF2e46A016ff9Ad);
 
     uint256 public constant REWARD_DURATION = 7 days;
-    uint256 public constant REWARD_PRECISION = 1e18;
-    mapping(address => uint256) public lastUpdateTimePerUser;
+    uint256 public constant PAW_STAKE_AMOUNT = 1e18;
 
     struct PawImage {
         address owner;
@@ -51,26 +56,17 @@ contract OnlyPaws {
         bool isForSale;
     }
 
-    struct UserStake {
+    struct PawStake {
         uint256 amount;
-        uint256 timestamp;
+        uint256 expiryTime;
+        bool isActive;
     }
 
     mapping(uint256 => PawImage) public pawImages;
+    mapping(address => mapping(uint256 => PawStake)) public pawStakes;
     mapping(address => uint256[]) public userPaws;
-    mapping(address => mapping(uint256 => UserStake)) public userStakes;
-    mapping(uint256 => uint256) public pawLastPurchaseTime;
-    address[] private activeStakers;
-    mapping(address => bool) private isActiveStaker;
-
-    uint256 public totalSupply;
-    uint256 public lastUpdateTime;
-    uint256 public rewardRate;
-    uint256 public rewardPerTokenStored;
-    uint256 public finishAt;
-
-    mapping(address => uint256) public userRewardPerTokenPaid;
-    mapping(address => uint256) public rewards;
+    mapping(address => bool) public isActiveUser;
+    address[] private activeUsers;
 
     event PawImageAdded(
         uint256 indexed pawId,
@@ -78,20 +74,27 @@ contract OnlyPaws {
         uint256 price
     );
     event PawPurchased(address indexed buyer, uint256 indexed pawId);
-    event RewardsDistributed(uint256 amount);
+    event PawStaked(
+        address indexed user,
+        uint256 indexed pawId,
+        uint256 amount
+    );
+    event PawUnstaked(
+        address indexed user,
+        uint256 indexed pawId,
+        uint256 amount
+    );
     event RewardsClaimed(address indexed user, uint256 amount);
 
     constructor() {
+        address vaultFactory = 0x2B6e40f65D82A0cB98795bC7587a71bfa49fBB2B;
+
         stakingToken = new PawStakingToken(address(this));
-        IBerachainRewardsVaultFactory factory = IBerachainRewardsVaultFactory(
-            0x2B6e40f65D82A0cB98795bC7587a71bfa49fBB2B
-        );
         vault = IBerachainRewardsVault(
-            factory.createRewardsVault(address(stakingToken))
+            IBerachainRewardsVaultFactory(vaultFactory).createRewardsVault(
+                address(stakingToken)
+            )
         );
-        stakingToken.mint(address(this), 1e18);
-        stakingToken.approve(address(vault), 1e18);
-        vault.stake(1e18);
     }
 
     function addPawImage(uint256 pawId, uint256 price) external {
@@ -105,225 +108,121 @@ contract OnlyPaws {
     }
 
     function purchasePaw(uint256 pawId) external payable {
-        uint256 price = pawImages[pawId].price;
-        require(msg.value == price, "Incorrect payment amount");
+        PawImage storage paw = pawImages[pawId];
+        require(paw.isForSale, "Paw not for sale");
+        require(msg.value == paw.price, "Incorrect payment amount");
 
-        updateReward(msg.sender);
+        // Create new stake
+        PawStake storage stake = pawStakes[msg.sender][pawId];
+        require(!stake.isActive, "Paw already staked");
 
-        UserStake storage stake = userStakes[msg.sender][pawId];
-        stake.amount = 1;
-        stake.timestamp = block.timestamp;
+        stake.amount = PAW_STAKE_AMOUNT;
+        stake.expiryTime = block.timestamp + REWARD_DURATION;
+        stake.isActive = true;
 
         userPaws[msg.sender].push(pawId);
-        addActiveStaker(msg.sender);
-        totalSupply += 1;
+        addActiveUser(msg.sender);
+
+        // Delegate stake to user
+        stakingToken.mint(address(this), PAW_STAKE_AMOUNT);
+        stakingToken.approve(address(vault), PAW_STAKE_AMOUNT);
+        vault.delegateStake(msg.sender, PAW_STAKE_AMOUNT);
 
         emit PawPurchased(msg.sender, pawId);
+        emit PawStaked(msg.sender, pawId, PAW_STAKE_AMOUNT);
     }
 
     function harvestRewards() public {
+        checkExpiredStakes();
         uint256 bgtReward = vault.getReward(address(this));
-        console.log("BGT Reward received:", bgtReward);
-        console.log(
-            "Contract BGT balance before redeem:",
-            bgt.balanceOf(address(this))
-        );
         if (bgtReward > 0) {
             bgt.redeem(address(this), bgtReward);
-            uint256 nativeReward = address(this).balance;
-            console.log("Native reward after redeem:", nativeReward);
-            notifyRewardAmount(nativeReward);
         }
-        console.log(
-            "Contract BGT balance after redeem:",
-            bgt.balanceOf(address(this))
-        );
-    }
-
-    function notifyRewardAmount(uint256 reward) internal {
-        updateReward(address(0));
-
-        if (block.timestamp >= finishAt) {
-            rewardRate = reward / REWARD_DURATION;
-        } else {
-            uint256 remaining = finishAt - block.timestamp;
-            uint256 leftover = remaining * rewardRate;
-            rewardRate = (reward + leftover) / REWARD_DURATION;
-        }
-
-        require(
-            rewardRate * REWARD_DURATION <= address(this).balance,
-            "Reward amount > balance"
-        );
-
-        finishAt = block.timestamp + REWARD_DURATION;
-        lastUpdateTime = block.timestamp;
-
-        emit RewardsDistributed(reward);
-    }
-
-    function updateExpiredStakes(address account) internal {
-        uint256[] storage pawIds = userPaws[account];
-        uint256 activeStakeCount = 0;
-
-        for (uint256 i = 0; i < pawIds.length; i++) {
-            uint256 pawId = pawIds[i];
-            UserStake storage stake = userStakes[account][pawId];
-            if (stake.amount > 0) {
-                if (block.timestamp > stake.timestamp + REWARD_DURATION) {
-                    totalSupply -= stake.amount;
-                    stake.amount = 0;
-                } else {
-                    activeStakeCount++;
-                }
-            }
-        }
-
-        if (activeStakeCount == 0) {
-            removeActiveStaker(account);
-        }
-    }
-    function lastTimeRewardApplicable() public view returns (uint256) {
-        return _min(finishAt, block.timestamp);
-    }
-
-    function rewardPerToken() public view returns (uint256) {
-        if (getTotalActiveTime() == 0) {
-            return rewardPerTokenStored;
-        }
-
-        console.log("calculating rewardPerToken()");
-        console.log("rewardPerTokenStored:", rewardPerTokenStored);
-        console.log("rewardRate:", rewardRate);
-        console.log("lastTimeRewardApplicable()", lastTimeRewardApplicable());
-        console.log("lastUpdateTime", lastUpdateTime);
-        return
-            rewardPerTokenStored +
-            ((rewardRate * (lastTimeRewardApplicable() - lastUpdateTime)) /
-                getTotalActiveTime());
-    }
-
-    function earned(address account) public view returns (uint256) {
-        uint256[] storage pawIds = userPaws[account];
-        uint256 rewardedTime = 0;
-
-        console.log("Paw IDs:", pawIds.length);
-        for (uint256 i = 0; i < pawIds.length; i++) {
-            UserStake storage stake = userStakes[account][pawIds[i]];
-            console.log("Paw ID:", pawIds[i]);
-            console.log("Stake amount:", stake.amount);
-            if (stake.amount > 0) {
-                uint256 endTime = _min(
-                    block.timestamp,
-                    stake.timestamp + REWARD_DURATION
-                );
-                uint256 startTime = _max(
-                    lastUpdateTimePerUser[account],
-                    stake.timestamp
-                );
-                console.log("startTime:", startTime);
-                console.log("endTime:", endTime);
-
-                if (endTime > startTime) {
-                    uint256 duration = endTime - startTime;
-                    rewardedTime += duration;
-                }
-            }
-        }
-
-        console.log("rewardedTime:", rewardedTime);
-        console.log("getTotalActiveTime()", getTotalActiveTime());
-        console.log("rewardPerToken()", rewardPerToken());
-        console.log("userRewardPerTokenPaid:", userRewardPerTokenPaid[account]);
-        console.log("rewards:", rewards[account]);
-        return
-            (rewardedTime *
-                (rewardPerToken() - userRewardPerTokenPaid[account])) +
-            rewards[account];
-    }
-
-    function getTotalActiveTime() internal view returns (uint256) {
-        uint256 totalTime = 0;
-        address[] memory stakers = getActiveStakers();
-
-        for (uint256 i = 0; i < stakers.length; i++) {
-            address staker = stakers[i];
-            uint256[] storage stakerPaws = userPaws[staker];
-            for (uint256 j = 0; j < stakerPaws.length; j++) {
-                UserStake storage stake = userStakes[staker][stakerPaws[j]];
-                if (stake.amount > 0) {
-                    uint256 endTime = _min(
-                        block.timestamp,
-                        stake.timestamp + REWARD_DURATION
-                    );
-                    uint256 startTime = _max(
-                        lastUpdateTimePerUser[staker],
-                        stake.timestamp
-                    );
-                    if (endTime > startTime) {
-                        totalTime += endTime - startTime;
-                    }
-                }
-            }
-        }
-        return totalTime;
     }
 
     function claimRewards() external {
-        updateReward(msg.sender);
-        uint256 reward = rewards[msg.sender];
-        console.log("Pending rewards to claim:", reward);
-        if (reward > 0) {
-            rewards[msg.sender] = 0;
-            (bool success, ) = payable(msg.sender).call{value: reward}("");
-            require(success, "BERA transfer failed");
-            emit RewardsClaimed(msg.sender, reward);
+        checkExpiredStakes();
+        uint256 balance = address(this).balance;
+        if (balance > 0) {
+            uint256 userShare = calculateUserShare(msg.sender);
+            if (userShare > 0) {
+                uint256 reward = (balance * userShare) / getTotalActiveStakes();
+                if (reward > 0) {
+                    (bool success, ) = payable(msg.sender).call{value: reward}(
+                        ""
+                    );
+                    require(success, "Transfer failed");
+                    emit RewardsClaimed(msg.sender, reward);
+                }
+            }
         }
     }
 
-    function updateReward(address account) internal {
-        rewardPerTokenStored = rewardPerToken();
-        console.log("Reward per token stored:", rewardPerTokenStored);
-        lastUpdateTime = lastTimeRewardApplicable();
-        console.log("Last update time:", lastUpdateTime);
-        if (account != address(0)) {
-            rewards[account] = earned(account);
-            userRewardPerTokenPaid[account] = rewardPerTokenStored;
-            lastUpdateTimePerUser[account] = lastTimeRewardApplicable();
-            updateExpiredStakes(account);
+    function calculateUserShare(address user) public view returns (uint256) {
+        uint256 activeStakes = 0;
+        uint256[] storage pawIds = userPaws[user];
+
+        for (uint256 i = 0; i < pawIds.length; i++) {
+            PawStake storage stake = pawStakes[user][pawIds[i]];
+            if (stake.isActive && block.timestamp <= stake.expiryTime) {
+                activeStakes += stake.amount;
+            }
+        }
+        return activeStakes;
+    }
+
+    function getTotalActiveStakes() public view returns (uint256) {
+        uint256 total = 0;
+        for (uint256 i = 0; i < activeUsers.length; i++) {
+            total += calculateUserShare(activeUsers[i]);
+        }
+        return total;
+    }
+
+    function checkExpiredStakes() public {
+        for (uint256 i = 0; i < activeUsers.length; i++) {
+            address user = activeUsers[i];
+            uint256[] storage pawIds = userPaws[user];
+
+            for (uint256 j = 0; j < pawIds.length; j++) {
+                PawStake storage stake = pawStakes[user][pawIds[j]];
+                if (stake.isActive && block.timestamp > stake.expiryTime) {
+                    vault.delegateWithdraw(user, stake.amount);
+                    stakingToken.burn(address(this), stake.amount);
+
+                    stake.isActive = false;
+                    emit PawUnstaked(user, pawIds[j], stake.amount);
+                }
+            }
+
+            if (calculateUserShare(user) == 0) {
+                removeActiveUser(user);
+            }
         }
     }
 
-    function addActiveStaker(address staker) internal {
-        if (!isActiveStaker[staker]) {
-            activeStakers.push(staker);
-            isActiveStaker[staker] = true;
+    function addActiveUser(address user) internal {
+        if (!isActiveUser[user]) {
+            activeUsers.push(user);
+            isActiveUser[user] = true;
         }
     }
 
-    function removeActiveStaker(address staker) internal {
-        if (isActiveStaker[staker]) {
-            for (uint256 i = 0; i < activeStakers.length; i++) {
-                if (activeStakers[i] == staker) {
-                    activeStakers[i] = activeStakers[activeStakers.length - 1];
-                    activeStakers.pop();
+    function removeActiveUser(address user) internal {
+        if (isActiveUser[user]) {
+            for (uint256 i = 0; i < activeUsers.length; i++) {
+                if (activeUsers[i] == user) {
+                    activeUsers[i] = activeUsers[activeUsers.length - 1];
+                    activeUsers.pop();
                     break;
                 }
             }
-            isActiveStaker[staker] = false;
+            isActiveUser[user] = false;
         }
     }
 
-    function getActiveStakers() public view returns (address[] memory) {
-        return activeStakers;
-    }
-
-    function _min(uint256 x, uint256 y) private pure returns (uint256) {
-        return x <= y ? x : y;
-    }
-
-    function _max(uint256 x, uint256 y) private pure returns (uint256) {
-        return x >= y ? x : y;
+    function getActiveUsers() public view returns (address[] memory) {
+        return activeUsers;
     }
 
     receive() external payable {}

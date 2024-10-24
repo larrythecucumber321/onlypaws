@@ -4,72 +4,12 @@ pragma solidity ^0.8.19;
 import "forge-std/Test.sol";
 import "../src/OnlyPaws.sol";
 import "forge-std/console.sol";
-import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-
-// Updated Mock BGT Token
-contract MockBGT is ERC20 {
-    constructor() ERC20("Mock BGT", "MBGT") {}
-
-    function mint(address account, uint256 amount) public {
-        _mint(account, amount);
-    }
-
-    function redeem(address receiver, uint256 amount) public {
-        require(balanceOf(msg.sender) >= amount, "Insufficient BGT balance");
-        _burn(msg.sender, amount);
-        console.log("BGT redeemed. Sender:", msg.sender);
-        console.log("BGT redeemed. Amount:", amount);
-        console.log("BGT redeemed. Receiver:", receiver);
-        console.log("BGT balance after redeem:", balanceOf(msg.sender));
-        payable(receiver).transfer(amount);
-    }
-
-    receive() external payable {}
-}
-
-// Mock Rewards Vault
-contract MockRewardsVault is IBerachainRewardsVault {
-    MockBGT public bgtToken;
-    uint256 public stakedAmount;
-    uint256 public constant REWARD_RATE = 1e15; // 0.001 BGT per second
-
-    constructor(address _bgtToken) {
-        bgtToken = MockBGT(payable(_bgtToken));
-    }
-
-    function stake(uint256 amount) external {
-        stakedAmount += amount;
-    }
-
-    function getReward(address account) external returns (uint256) {
-        uint256 reward = REWARD_RATE * 7 days; // 1 week of rewards
-        bgtToken.transfer(account, reward);
-        return reward;
-    }
-
-    receive() external payable {}
-}
-
-// Mock Rewards Vault Factory
-contract MockRewardsVaultFactory is IBerachainRewardsVaultFactory {
-    address public immutable rewardsVault;
-
-    constructor(address _rewardsVault) {
-        rewardsVault = _rewardsVault;
-    }
-
-    function createRewardsVault(
-        address stakingToken
-    ) external returns (address) {
-        return rewardsVault;
-    }
-}
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 contract OnlyPawsTest is Test {
     OnlyPaws public onlyPaws;
-    MockBGT public bgtToken;
-    MockRewardsVault public rewardsVault;
-    MockRewardsVaultFactory public rewardsVaultFactory;
+    PawStakingToken public stakingToken;
+    IBGT public constant bgt = IBGT(0xbDa130737BDd9618301681329bF2e46A016ff9Ad);
 
     address public user1 = address(0x1);
     address public user2 = address(0x2);
@@ -77,161 +17,137 @@ contract OnlyPawsTest is Test {
 
     uint256 constant INITIAL_BALANCE = 1000 ether;
     uint256 constant PAW_PRICE = 0.1 ether;
-    uint256 constant WEEKLY_REWARD = 100 ether;
 
     receive() external payable {}
 
-    address constant BGT_ADDRESS = 0xbDa130737BDd9618301681329bF2e46A016ff9Ad;
-
     function setUp() public {
-        // Deploy MockBGT at the specific address
-        vm.etch(BGT_ADDRESS, address(new MockBGT()).code);
-        bgtToken = MockBGT(payable(BGT_ADDRESS));
-
-        rewardsVault = new MockRewardsVault(BGT_ADDRESS);
-        rewardsVaultFactory = new MockRewardsVaultFactory(
-            address(rewardsVault)
-        );
-
-        vm.etch(
-            0x2B6e40f65D82A0cB98795bC7587a71bfa49fBB2B,
-            address(rewardsVaultFactory).code
-        );
-
+        // Deploy OnlyPaws
         onlyPaws = new OnlyPaws();
-
+        stakingToken = onlyPaws.stakingToken();
+        // Fund test accounts
         vm.deal(user1, INITIAL_BALANCE);
         vm.deal(user2, INITIAL_BALANCE);
         vm.deal(user3, INITIAL_BALANCE);
         vm.deal(address(this), INITIAL_BALANCE);
-        vm.deal(BGT_ADDRESS, INITIAL_BALANCE * 100); // Ensure MockBGT has enough ETH
 
-        bgtToken.mint(address(rewardsVault), WEEKLY_REWARD * 52);
-
-        console.log(
-            "RewardsVault BGT balance:",
-            bgtToken.balanceOf(address(rewardsVault))
-        );
-        console.log(
-            "OnlyPaws BGT balance:",
-            bgtToken.balanceOf(address(onlyPaws))
-        );
-
+        // Add initial paw images
         vm.startPrank(address(this));
         onlyPaws.addPawImage(1, PAW_PRICE);
         onlyPaws.addPawImage(2, PAW_PRICE);
         onlyPaws.addPawImage(3, PAW_PRICE);
-
-        // Initial rewards harvest
-        onlyPaws.harvestRewards();
         vm.stopPrank();
     }
 
-    function testRewardDistributionSimple() public {
-        vm.prank(user1);
+    function testPawPurchaseAndStaking() public {
+        vm.startPrank(user1);
+
+        // Purchase paw
         onlyPaws.purchasePaw{value: PAW_PRICE}(1);
 
-        vm.warp(block.timestamp + 3 days);
-
-        vm.prank(user2);
-        onlyPaws.purchasePaw{value: PAW_PRICE}(2);
-
-        vm.warp(block.timestamp + 4 days);
-
-        uint256 user1BalanceBefore = user1.balance;
-        vm.prank(user1);
-        onlyPaws.claimRewards();
-        uint256 user1Rewards = user1.balance - user1BalanceBefore;
-
-        uint256 user2BalanceBefore = user2.balance;
-        vm.prank(user2);
-        onlyPaws.claimRewards();
-        uint256 user2Rewards = user2.balance - user2BalanceBefore;
-
-        console.log("User 1 rewards:", user1Rewards);
-        console.log("User 2 rewards:", user2Rewards);
-
-        assertGt(user1Rewards, 0, "User 1 should have non-zero rewards");
-        assertGt(user2Rewards, 0, "User 2 should have non-zero rewards");
-        assertGt(
-            user1Rewards,
-            user2Rewards,
-            "User 1 should have more rewards than User 2"
+        // Verify stake
+        (uint256 amount, uint256 expiryTime, bool isActive) = onlyPaws
+            .pawStakes(user1, 1);
+        assertTrue(isActive, "Stake should be active");
+        assertEq(amount, onlyPaws.PAW_STAKE_AMOUNT(), "Incorrect stake amount");
+        assertEq(
+            expiryTime,
+            block.timestamp + onlyPaws.REWARD_DURATION(),
+            "Incorrect expiry time"
         );
+
+        vm.stopPrank();
     }
 
-    function testRewardDistributionOverTime() public {
+    function testRewardDistribution() public {
+        // User1 purchases paw
         vm.prank(user1);
         onlyPaws.purchasePaw{value: PAW_PRICE}(1);
 
-        vm.warp(block.timestamp + 3 days);
+        // Advance time halfway through reward period
+        vm.warp(block.timestamp + 3.5 days);
 
+        // User2 purchases paw
         vm.prank(user2);
         onlyPaws.purchasePaw{value: PAW_PRICE}(2);
 
-        vm.warp(block.timestamp + 4 days);
+        // Advance to end of reward period
+        vm.warp(block.timestamp + 3.5 days);
 
-        vm.prank(user3);
-        onlyPaws.purchasePaw{value: PAW_PRICE}(3);
-
+        // Harvest rewards
         onlyPaws.harvestRewards();
 
-        vm.warp(block.timestamp + 7 days);
-
+        // User1 claims rewards
         uint256 user1BalanceBefore = user1.balance;
         vm.prank(user1);
         onlyPaws.claimRewards();
         uint256 user1Rewards = user1.balance - user1BalanceBefore;
 
+        // User2 claims rewards
         uint256 user2BalanceBefore = user2.balance;
         vm.prank(user2);
         onlyPaws.claimRewards();
         uint256 user2Rewards = user2.balance - user2BalanceBefore;
 
-        uint256 user3BalanceBefore = user3.balance;
-        vm.prank(user3);
-        onlyPaws.claimRewards();
-        uint256 user3Rewards = user3.balance - user3BalanceBefore;
-
-        console.log("User 1 rewards:", user1Rewards);
-        console.log("User 2 rewards:", user2Rewards);
-        console.log("User 3 rewards:", user3Rewards);
-
-        assertGt(user1Rewards, 0, "User 1 should have non-zero rewards");
-        assertGt(user2Rewards, 0, "User 2 should have non-zero rewards");
-        assertEq(user3Rewards, 0, "User 3 should have zero rewards");
+        // Verify rewards
+        assertGt(user1Rewards, 0, "User1 should have non-zero rewards");
+        assertGt(user2Rewards, 0, "User2 should have non-zero rewards");
         assertGt(
             user1Rewards,
-            user3Rewards,
-            "User 1 should have more rewards than User 3"
-        );
-        assertGt(
             user2Rewards,
-            user3Rewards,
-            "User 2 should have more rewards than User 3"
+            "User1 should have more rewards than User2"
         );
     }
 
-    function testRewardExpiration() public {
+    function testStakeExpiry() public {
+        // User1 purchases paw
         vm.startPrank(user1);
         onlyPaws.purchasePaw{value: PAW_PRICE}(1);
 
-        vm.warp(block.timestamp + 7 days);
-        onlyPaws.claimRewards();
-        uint256 user1BalanceBefore = user1.balance;
+        // Advance past reward duration
+        vm.warp(block.timestamp + onlyPaws.REWARD_DURATION() + 1);
 
-        console.log("User 1 rewards at expiration:", user1BalanceBefore);
-        onlyPaws.harvestRewards();
+        // Check expired stakes
+        onlyPaws.checkExpiredStakes();
 
-        vm.warp(block.timestamp + 3 days);
-        onlyPaws.claimRewards();
-        uint256 user1RewardsAfter = user1.balance - user1BalanceBefore;
+        // Verify stake is no longer active
+        (, , bool isActive) = onlyPaws.pawStakes(user1, 1);
+        assertFalse(isActive, "Stake should be expired");
 
-        console.log("User 1 rewards after expiration:", user1RewardsAfter);
+        vm.stopPrank();
+    }
+
+    function testMultipleStakes() public {
+        // User1 purchases multiple paws
+        vm.startPrank(user1);
+        onlyPaws.purchasePaw{value: PAW_PRICE}(1);
+        onlyPaws.purchasePaw{value: PAW_PRICE}(2);
+
+        // Verify user share
+        uint256 userShare = onlyPaws.calculateUserShare(user1);
         assertEq(
-            user1RewardsAfter,
-            0,
-            "User 1 should have no rewards after 7 days"
+            userShare,
+            onlyPaws.PAW_STAKE_AMOUNT() * 2,
+            "Incorrect user share"
         );
+
+        vm.stopPrank();
+    }
+
+    function testActiveUserTracking() public {
+        // User1 purchases paw
+        vm.prank(user1);
+        onlyPaws.purchasePaw{value: PAW_PRICE}(1);
+
+        // Verify user is active
+        assertTrue(onlyPaws.isActiveUser(user1), "User1 should be active");
+
+        // Advance past reward duration
+        vm.warp(block.timestamp + onlyPaws.REWARD_DURATION() + 1);
+
+        // Check expired stakes
+        onlyPaws.checkExpiredStakes();
+
+        // Verify user is no longer active
+        assertFalse(onlyPaws.isActiveUser(user1), "User1 should be inactive");
     }
 }
