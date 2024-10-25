@@ -1,17 +1,19 @@
 "use client";
 
 import { useAccount } from "wagmi";
+import { useLeaderboard } from "../hooks/useLeaderboard";
 
 export function Leaderboard() {
   const { address } = useAccount();
-
-  // Mock data for leaderboard
-  const leaderboard = [
-    { address: "0x1234...5678", purchases: 10 },
-    { address: "0x5678...9012", purchases: 8 },
-    { address: "0x9012...3456", purchases: 6 },
-    // Add more mock leaderboard entries here
-  ];
+  const {
+    leaderboard,
+    loading,
+    error,
+    earnedRewards,
+    claimRewards,
+    isClaimingRewards,
+    isClaimConfirmed,
+  } = useLeaderboard("vaultId"); // Replace with actual vault ID
 
   return (
     <div className="bg-background p-6 rounded-lg shadow-md">
@@ -30,8 +32,12 @@ export function Leaderboard() {
         ))}
       </ul>
       {address && (
-        <button className="mt-6 bg-primary text-background px-6 py-2 rounded-full hover:bg-accent transition-colors">
-          Claim BGT Rewards
+        <button
+          className="mt-6 bg-primary text-background px-6 py-2 rounded-full hover:bg-accent transition-colors"
+          onClick={claimRewards}
+          disabled={isClaimingRewards}
+        >
+          {isClaimingRewards ? "Claiming..." : "Claim BGT Rewards"}
         </button>
       )}
     </div>

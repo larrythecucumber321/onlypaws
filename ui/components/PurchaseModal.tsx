@@ -33,7 +33,7 @@ export function PurchaseModal({
     setIsProcessing(true);
     try {
       await writeContract({
-        address: ONLYPAWS_CONTRACT_ADDRESS,
+        address: "0x4b84b884C45790dceD4c224Da3D8eb9FF2B2c202", // Deployed contract address
         abi: ONLYPAWS_ABI,
         functionName: "purchasePaw",
         args: [BigInt(image.id)],

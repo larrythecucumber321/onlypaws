@@ -7,10 +7,11 @@ import { PurchaseModal } from "./PurchaseModal";
 import { supabase } from "../lib/supabase";
 
 interface PawImage {
-  id: number;
+  id: string;
   name: string;
   price: string;
-  image_url: string;
+  image_id: string; // Changed from image_url to image_id
+  owner: string;
 }
 
 export function Marketplace() {
@@ -23,16 +24,47 @@ export function Marketplace() {
   }, []);
 
   async function fetchImages() {
-    const { data, error } = await supabase
-      .from("paw-images")
-      .select("*")
-      .order("created_at", { ascending: false });
+    try {
+      // Fetch paw metadata from the paws table
+      const { data, error } = await supabase
+        .from("paws")
+        .select("id, name, image_id, price, owner")
+        .order("id", { ascending: false });
 
-    if (error) {
+      if (error) throw error;
+
+      if (data) {
+        // For each paw, get the public URL of its image
+        const pawsWithUrls = await Promise.all(
+          data.map(async (paw) => {
+            const { data: urlData } = supabase.storage
+              .from("paw-images")
+              .getPublicUrl(paw.image_id);
+
+            console.log({ paw, urlData });
+            return {
+              ...paw,
+              publicUrl: urlData.publicUrl,
+            };
+          })
+        );
+
+        setImages(pawsWithUrls);
+      }
+    } catch (error) {
       console.error("Error fetching images:", error);
-    } else {
-      setImages(data as PawImage[]);
     }
+  }
+
+  if (images.length === 0) {
+    return (
+      <div className="bg-background p-6 rounded-lg shadow-md">
+        <h2 className="text-3xl font-bold mb-6 text-primary">Available Paws</h2>
+        <p className="text-text">
+          No paws available for purchase at the moment.
+        </p>
+      </div>
+    );
   }
 
   return (
@@ -42,7 +74,10 @@ export function Marketplace() {
         {images.map((image) => (
           <PawImage
             key={image.id}
-            image={image}
+            image={{
+              ...image,
+              image_url: image.publicUrl, // Pass the public URL to PawImage
+            }}
             onClick={() => setSelectedImage(image)}
           />
         ))}

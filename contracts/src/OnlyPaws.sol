@@ -138,12 +138,11 @@ contract OnlyPaws {
 
     function purgeExpiredStakes() public {
         uint256 i = 0;
-        uint256 currentTime = block.timestamp;
 
         // Continue until we find a non-expired stake or process all stakes
         while (
             i < orderedStakes.length &&
-            orderedStakes[i].expiryTime < currentTime
+            orderedStakes[i].expiryTime < block.timestamp
         ) {
             StakeInfo memory stake = orderedStakes[i];
 

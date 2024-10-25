@@ -1,30 +1,49 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   useAccount,
-  useWriteContract,
   useWaitForTransactionReceipt,
+  useWriteContract,
 } from "wagmi";
 import { parseEther } from "viem";
-import { ONLYPAWS_CONTRACT_ADDRESS, ONLYPAWS_ABI } from "../constants";
+import { ONLYPAWS_ABI } from "../constants";
 import { supabase } from "../lib/supabase";
 
 export function UploadImage() {
   const [file, setFile] = useState<File | null>(null);
   const [price, setPrice] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string>("");
   const { address } = useAccount();
 
-  const { writeContract, data: hash } = useWriteContract();
+  const { writeContract, data: hash, isPending } = useWriteContract();
   const { isLoading: isConfirming, isSuccess: isConfirmed } =
     useWaitForTransactionReceipt({
       hash,
     });
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      setFile(e.target.files[0]);
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    try {
+      if (!e.target.files || e.target.files.length === 0) {
+        throw new Error("You must select an image to upload.");
+      }
+      const file = e.target.files[0];
+      setFile(file);
+
+      // Generate a unique filename
+      const fileId = `${Date.now()}-${file.name}`;
+
+      // Get public URL for preview
+      const { data: urlData } = supabase.storage
+        .from("paw-images")
+        .getPublicUrl(fileId);
+
+      if (urlData) {
+        setPreviewUrl(urlData.publicUrl);
+      }
+    } catch (error) {
+      console.error("Error handling file:", error);
     }
   };
 
@@ -35,58 +54,64 @@ export function UploadImage() {
     setUploading(true);
 
     try {
-      // Upload image to Supabase
-      const fileExt = file.name.split(".").pop();
-      const fileName = `${Math.random()}.${fileExt}`;
-      const { data, error } = await supabase.storage
-        .from("paw-images")
-        .upload(fileName, file);
+      const pawId = Date.now();
 
-      if (error) throw error;
-
-      // Get public URL
-      const { data: publicUrlData } = supabase.storage
-        .from("paw-images")
-        .getPublicUrl(data.path);
-
-      // Add paw image to contract
-      const pawId = Date.now(); // Use timestamp as a simple unique ID
-      writeContract({
-        address: ONLYPAWS_CONTRACT_ADDRESS,
+      // First, write to the contract
+      await writeContract({
+        address: "0x4b84b884C45790dceD4c224Da3D8eb9FF2B2c202",
         abi: ONLYPAWS_ABI,
         functionName: "addPawImage",
         args: [BigInt(pawId), parseEther(price)],
       });
 
-      console.log("before metadata", {
-        id: pawId,
-        name: file.name,
-        price: price,
-        image_url: publicUrlData.publicUrl,
-        owner: address,
-      });
-      // Save metadata to Supabase
-      const { error: metadataError } = await supabase
-        .from("paw_images")
-        .insert({
-          id: pawId,
-          name: file.name,
-          price: price,
-          image_url: publicUrlData.publicUrl,
-          owner: address,
-        });
-
-      if (metadataError) throw metadataError;
-      console.log("after metadata");
-
-      setFile(null);
-      setPrice("");
+      // Wait for transaction confirmation using the useWaitForTransactionReceipt hook
+      // The actual waiting is handled by the hook, and we use isConfirmed in a useEffect
     } catch (error) {
-      console.error("Error uploading image:", error);
-    } finally {
+      console.error("Error with contract transaction:", error);
       setUploading(false);
     }
   };
+
+  // Handle successful transaction confirmation
+  useEffect(() => {
+    const uploadToSupabase = async () => {
+      if (!isConfirmed || !file || !price || !address) return;
+
+      try {
+        const fileId = `${Date.now()}-${file.name}`;
+        const pawId = Date.now();
+
+        // Upload to Supabase storage bucket
+        const { error: uploadError } = await supabase.storage
+          .from("paw-images")
+          .upload(fileId, file);
+
+        if (uploadError) throw uploadError;
+
+        // Save metadata to Supabase
+        const { error: metadataError } = await supabase.from("paws").insert({
+          id: pawId.toString(),
+          name: file.name,
+          price: price,
+          image_id: fileId,
+          owner: address,
+        });
+
+        if (metadataError) throw metadataError;
+
+        // Reset form
+        setFile(null);
+        setPrice("");
+        setPreviewUrl("");
+      } catch (error) {
+        console.error("Error uploading to Supabase:", error);
+      } finally {
+        setUploading(false);
+      }
+    };
+
+    uploadToSupabase();
+  }, [isConfirmed, file, price, address]);
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -110,6 +135,15 @@ export function UploadImage() {
             hover:file:bg-accent"
         />
       </div>
+      {previewUrl && (
+        <div className="mt-4">
+          <img
+            src={previewUrl}
+            alt="Preview"
+            className="rounded-lg w-[300px] h-[300px] object-cover"
+          />
+        </div>
+      )}
       <div>
         <label
           htmlFor="price"
@@ -127,14 +161,15 @@ export function UploadImage() {
       </div>
       <button
         type="submit"
-        disabled={!file || !price || uploading || isConfirming}
+        disabled={!file || !price || uploading || isPending || isConfirming}
         className="w-full py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-primary hover:bg-accent focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary"
       >
-        {uploading || isConfirming ? "Uploading..." : "Upload Paw Image"}
+        {isPending || isConfirming
+          ? "Confirming Transaction..."
+          : uploading
+          ? "Uploading..."
+          : "Upload Paw Image"}
       </button>
-      {isConfirmed && (
-        <p className="text-green-600">Paw image uploaded successfully!</p>
-      )}
     </form>
   );
 }

@@ -36,7 +36,7 @@ export function Gallery() {
     const pawIds = contractData.map((item: { paw_id: number }) => item.paw_id);
 
     const { data: imageData, error: imageError } = await supabase
-      .from("paw-images")
+      .from("paws")
       .select("*")
       .in("id", pawIds);
 

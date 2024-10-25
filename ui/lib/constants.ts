@@ -1,0 +1,5 @@
+export const ONLYPAWS_CONTRACT_ADDRESS =
+  "0x4b84b884C45790dceD4c224Da3D8eb9FF2B2c202" as `0x${string}`;
+
+export const VAULT_CONTRACT_ADDRESS =
+  "0x8Ed74940C90e39fB9144D7Ae2066Ad662fbDf5C6" as `0x${string}`;
