@@ -7,7 +7,7 @@ import {
   useWriteContract,
 } from "wagmi";
 import { parseEther } from "viem";
-import { ONLYPAWS_ABI } from "../constants";
+import ONLYPAWS_ABI from "../lib/abi/OnlyPaws.json";
 import { supabase } from "../lib/supabase";
 
 export function UploadImage() {
@@ -31,17 +31,11 @@ export function UploadImage() {
       const file = e.target.files[0];
       setFile(file);
 
-      // Generate a unique filename
-      const fileId = `${Date.now()}-${file.name}`;
+      // Create a local preview URL
+      const objectUrl = URL.createObjectURL(file);
+      setPreviewUrl(objectUrl);
 
-      // Get public URL for preview
-      const { data: urlData } = supabase.storage
-        .from("paw-images")
-        .getPublicUrl(fileId);
-
-      if (urlData) {
-        setPreviewUrl(urlData.publicUrl);
-      }
+      return () => URL.revokeObjectURL(objectUrl);
     } catch (error) {
       console.error("Error handling file:", error);
     }

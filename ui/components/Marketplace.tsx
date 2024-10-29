@@ -10,8 +10,9 @@ interface PawImage {
   id: string;
   name: string;
   price: string;
-  image_id: string; // Changed from image_url to image_id
+  image_id: string;
   owner: string;
+  publicUrl?: string;
 }
 
 export function Marketplace() {
@@ -25,7 +26,6 @@ export function Marketplace() {
 
   async function fetchImages() {
     try {
-      // Fetch paw metadata from the paws table
       const { data, error } = await supabase
         .from("paws")
         .select("id, name, image_id, price, owner")
@@ -34,14 +34,12 @@ export function Marketplace() {
       if (error) throw error;
 
       if (data) {
-        // For each paw, get the public URL of its image
         const pawsWithUrls = await Promise.all(
           data.map(async (paw) => {
             const { data: urlData } = supabase.storage
               .from("paw-images")
               .getPublicUrl(paw.image_id);
 
-            console.log({ paw, urlData });
             return {
               ...paw,
               publicUrl: urlData.publicUrl,
@@ -76,15 +74,20 @@ export function Marketplace() {
             key={image.id}
             image={{
               ...image,
-              image_url: image.publicUrl, // Pass the public URL to PawImage
+              image_url: image.publicUrl || "",
             }}
             onClick={() => setSelectedImage(image)}
+            isInGallery={false}
           />
         ))}
       </div>
       {selectedImage && isConnected && (
         <PurchaseModal
-          image={selectedImage}
+          image={{
+            id: Number(selectedImage.id),
+            name: selectedImage.name,
+            price: selectedImage.price,
+          }}
           onClose={() => setSelectedImage(null)}
           onPurchase={fetchImages}
         />

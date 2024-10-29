@@ -4,6 +4,7 @@ import "./globals.css";
 import { Web3Provider } from "../components/Web3Provider";
 import { Sidebar } from "../components/Sidebar";
 import { ConnectButton } from "../components/ConnectButton";
+import { ApolloProvider } from "../components/ApolloProvider";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
@@ -21,15 +22,17 @@ export default function RootLayout({
     <html lang="en">
       <body className={`${inter.variable} font-sans bg-background text-text`}>
         <Web3Provider>
-          <div className="flex min-h-screen">
-            <Sidebar />
-            <div className="flex-1 p-8">
-              <header className="flex justify-end mb-8">
-                <ConnectButton />
-              </header>
-              <main>{children}</main>
+          <ApolloProvider>
+            <div className="flex min-h-screen">
+              <Sidebar />
+              <div className="flex-1 p-8">
+                <header className="flex justify-end mb-8">
+                  <ConnectButton />
+                </header>
+                <main>{children}</main>
+              </div>
             </div>
-          </div>
+          </ApolloProvider>
         </Web3Provider>
       </body>
     </html>

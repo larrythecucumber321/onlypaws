@@ -1,3 +1,5 @@
+"use client";
+
 import { gql, useQuery } from "@apollo/client";
 import {
   useAccount,
@@ -6,70 +8,72 @@ import {
   useWaitForTransactionReceipt,
 } from "wagmi";
 import { useMemo } from "react";
-import { VAULT_CONTRACT_ADDRESS } from "../lib/constants";
-import vaultABI from "../lib/abi/Vault.json";
+import {
+  ONLYPAWS_CONTRACT_ADDRESS,
+  VAULT_CONTRACT_ADDRESS,
+} from "../lib/constants";
+import ONLYPAWS_ABI from "../lib/abi/OnlyPaws.json";
+import VAULT_ABI from "../lib/abi/Vault.json";
 
 type LeaderboardEntry = {
   id: string;
-  totalStaked: string;
-  totalWithdrawal: string;
-  totalShares: string;
-  totalStakedAmount: string;
-  totalWithdrawalAmount: string;
-  currentStakedAmount: string;
-  endPrice: string;
-  bera: string;
+  user: string;
+  amount: string;
+  vault: {
+    id: string;
+    vaultAddress: string;
+  };
 };
 
 const LEADERBOARD_QUERY = gql`
-  query GetLeaderboard($userId: String!) {
-    users(orderBy: "currentStakedAmount", orderDirection: "desc", limit: 10) {
-      items {
+  query GetLeaderboard($vaultId: String!, $userId: String!) {
+    topTen: userVaultDeposits_collection(
+      where: { vault_: { id: $vaultId } }
+      first: 10
+      orderBy: amount
+      orderDirection: desc
+    ) {
+      id
+      user
+      amount
+      vault {
         id
-        totalStaked
-        totalWithdrawal
-        totalStakedAmount
-        totalWithdrawalAmount
-        currentStakedAmount
-        endPrice
-        totalShares
-        bera
+        vaultAddress
       }
     }
-    user(id: $userId) {
+    specificUser: userVaultDeposits_collection(
+      where: { and: [{ vault_: { id: $vaultId } }, { user: $userId }] }
+      first: 1
+    ) {
       id
-      totalStaked
-      totalWithdrawal
-      totalStakedAmount
-      totalWithdrawalAmount
-      currentStakedAmount
-      endPrice
-      totalShares
-      bera
+      user
+      amount
+      vault {
+        id
+        vaultAddress
+      }
     }
   }
 `;
 
 interface LeaderboardQueryResponse {
-  users: {
-    items: LeaderboardEntry[];
-  };
-  user: LeaderboardEntry;
+  topTen: LeaderboardEntry[];
+  specificUser: LeaderboardEntry[];
 }
 
-export function useLeaderboard(vaultId: string) {
+export function useLeaderboard() {
   const { address } = useAccount();
   const { data, loading, error } = useQuery<LeaderboardQueryResponse>(
     LEADERBOARD_QUERY,
     {
-      variables: { vaultId, userId: address || "" },
+      variables: { vaultId: VAULT_CONTRACT_ADDRESS, userId: address || "" },
       skip: !address,
     }
   );
 
   const { data: earnedRewards } = useContractRead({
     address: VAULT_CONTRACT_ADDRESS,
-    abi: vaultABI.abi,
+    abi: VAULT_ABI,
     functionName: "earned",
     args: [address],
   });
@@ -83,25 +87,23 @@ export function useLeaderboard(vaultId: string) {
   const sortedLeaderboard = useMemo(() => {
     if (!data) return [];
 
-    const userEntry = data.user;
-    const otherEntries = data.users.items.filter(
-      (entry: LeaderboardEntry) =>
-        entry.id.toLowerCase() !== address?.toLowerCase()
+    const userEntry = data.specificUser[0];
+    const otherEntries = data.topTen.filter(
+      (entry) => entry.user.toLowerCase() !== address?.toLowerCase()
     );
 
     return userEntry ? [userEntry, ...otherEntries] : otherEntries;
   }, [data, address]);
 
   const claimRewards = () => {
-    if (address) {
-      console.log("Claiming rewards", address);
-      writeContract({
-        address: VAULT_CONTRACT_ADDRESS,
-        abi: vaultABI.abi,
-        functionName: "getReward",
-        args: [address],
-      });
-    }
+    if (!address) return;
+
+    writeContract({
+      address: ONLYPAWS_CONTRACT_ADDRESS,
+      abi: ONLYPAWS_ABI,
+      functionName: "claimRewards",
+      args: [address],
+    });
   };
 
   return {

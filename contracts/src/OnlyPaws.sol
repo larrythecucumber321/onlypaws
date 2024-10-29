@@ -50,7 +50,6 @@ contract OnlyPaws {
     struct PawImage {
         address owner;
         uint256 price;
-        bool isForSale;
     }
 
     struct StakeInfo {
@@ -95,11 +94,7 @@ contract OnlyPaws {
 
     function addPawImage(uint256 pawId, uint256 price) external {
         require(pawImages[pawId].owner == address(0), "Paw already exists");
-        pawImages[pawId] = PawImage({
-            owner: msg.sender,
-            price: price,
-            isForSale: true
-        });
+        pawImages[pawId] = PawImage({owner: msg.sender, price: price});
         emit PawImageAdded(pawId, msg.sender, price);
     }
 
@@ -108,7 +103,6 @@ contract OnlyPaws {
         purgeExpiredStakes();
 
         PawImage storage paw = pawImages[pawId];
-        require(paw.isForSale, "Paw not for sale");
         require(msg.value == paw.price, "Incorrect payment amount");
         require(!userHasPaw[msg.sender][pawId], "Already owns this paw");
 
