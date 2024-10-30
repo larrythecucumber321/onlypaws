@@ -3,7 +3,6 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { ConnectButton } from "./ConnectButton";
 import { useState } from "react";
 import { Menu, X } from "lucide-react";
 
@@ -53,14 +52,14 @@ export function Sidebar() {
 
           {/* Navigation Links */}
           <nav className="flex-1 p-4">
-            <ul className="space-y-2">
+            <ul className="space-y-4">
               <li>
                 <Link
                   href="/marketplace"
-                  className={`flex items-center px-4 py-2 rounded-lg transition-colors ${
+                  className={`flex items-center px-6 py-3 rounded-lg transition-colors text-lg font-semibold ${
                     isActive("/marketplace")
                       ? "bg-[#00A6ED] text-white"
-                      : "text-text hover:bg-primary/10"
+                      : "text-gray-100 hover:bg-primary/10"
                   }`}
                   onClick={() => setIsMobileMenuOpen(false)}
                 >
@@ -70,10 +69,10 @@ export function Sidebar() {
               <li>
                 <Link
                   href="/gallery"
-                  className={`flex items-center px-4 py-2 rounded-lg transition-colors ${
+                  className={`flex items-center px-6 py-3 rounded-lg transition-colors text-lg font-semibold ${
                     isActive("/gallery")
                       ? "bg-[#00A6ED] text-white"
-                      : "text-text hover:bg-primary/10"
+                      : "text-gray-100 hover:bg-primary/10"
                   }`}
                   onClick={() => setIsMobileMenuOpen(false)}
                 >
@@ -83,10 +82,10 @@ export function Sidebar() {
               <li>
                 <Link
                   href="/leaderboard"
-                  className={`flex items-center px-4 py-2 rounded-lg transition-colors ${
+                  className={`flex items-center px-6 py-3 rounded-lg transition-colors text-lg font-semibold ${
                     isActive("/leaderboard")
                       ? "bg-[#00A6ED] text-white"
-                      : "text-text hover:bg-primary/10"
+                      : "text-gray-100 hover:bg-primary/10"
                   }`}
                   onClick={() => setIsMobileMenuOpen(false)}
                 >
@@ -95,11 +94,6 @@ export function Sidebar() {
               </li>
             </ul>
           </nav>
-
-          {/* Connect Button */}
-          <div className="p-4 border-t border-primary/10">
-            <ConnectButton />
-          </div>
         </div>
       </div>
 

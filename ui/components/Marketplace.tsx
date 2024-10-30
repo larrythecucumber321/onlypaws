@@ -7,6 +7,8 @@ import Image from "next/image";
 import { PurchaseModal } from "./PurchaseModal";
 import { UploadModal } from "./UploadModal";
 import { supabase } from "../lib/supabase";
+import { usePawOwnership } from "../hooks/usePawOwnership";
+import Link from "next/link";
 
 interface PawImage {
   id: string;
@@ -26,6 +28,11 @@ export function Marketplace() {
   const [images, setImages] = useState<PawImage[]>([]);
   const [sortBy, setSortBy] = useState<SortOption>("latest");
   const { isConnected } = useAccount();
+  const { ownedPaws, allPaws, isLoading } = usePawOwnership();
+
+  const availablePaws = allPaws.filter(
+    (paw) => !ownedPaws.find((owned) => owned.id === paw.id)
+  );
 
   useEffect(() => {
     fetchImages();
@@ -94,9 +101,30 @@ export function Marketplace() {
           </div>
         </div>
         <p className="text-text/80 mb-6 max-w-2xl mx-auto">
-          Discover and collect unique paws. Each purchase earns you BGT rewards
-          through staking. Start your collection today!
+          Discover and collect unique paws. Each purchase activates a 7-day BGT
+          reward stream through Berachain's Proof-of-Liquidity mechanism.
         </p>
+        <div className="bg-background/30 p-6 rounded-lg mb-6 max-w-2xl mx-auto">
+          <h3 className="text-xl font-semibold mb-3 text-primary">
+            How BGT Rewards Work
+          </h3>
+          <ul className="text-left space-y-2 text-text/80">
+            <li>• Purchase a paw to start earning BGT rewards</li>
+            <li>
+              • Your paw automatically stakes in the RewardsVault for 7 days
+            </li>
+            <li>• Earn BGT rewards proportional to your stake</li>
+            <li>
+              • Track your earnings and claim rewards in the{" "}
+              <Link
+                href="/leaderboard"
+                className="text-primary hover:text-primary/80 underline"
+              >
+                Leaderboard
+              </Link>
+            </li>
+          </ul>
+        </div>
         <button
           onClick={() => setShowUploadModal(true)}
           className="bg-primary text-white px-8 py-3 rounded-lg text-lg font-semibold hover:bg-primary/90 transition-colors shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 transition-all"
@@ -120,7 +148,7 @@ export function Marketplace() {
           </select>
         </div>
 
-        {sortedImages.length === 0 ? (
+        {availablePaws.length === 0 ? (
           <div className="text-center py-12 bg-background/50 rounded-lg border-2 border-dashed border-primary/20">
             <p className="text-text text-lg mb-4">
               No paws available for purchase at the moment.
@@ -134,7 +162,7 @@ export function Marketplace() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {sortedImages.map((image) => (
+            {availablePaws.map((image) => (
               <PawImage
                 key={image.id}
                 image={{

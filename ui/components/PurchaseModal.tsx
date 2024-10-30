@@ -59,12 +59,14 @@ export function PurchaseModal({
   });
 
   function handlePurchase() {
+    if (!image.price) return;
+
     writeContract({
       address: ONLYPAWS_CONTRACT_ADDRESS,
       abi: ONLYPAWS_ABI,
       functionName: "purchasePaw",
       args: [BigInt(image.id)],
-      value: parseEther(image.price),
+      value: parseEther(image.price.toString()),
     });
   }
 

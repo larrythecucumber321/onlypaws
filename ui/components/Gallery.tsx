@@ -1,106 +1,69 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useAccount, useReadContracts } from "wagmi";
+import { useAccount } from "wagmi";
 import { PawImage as PawImageComponent } from "./PawImage";
-import { supabase } from "../lib/supabase";
-import ONLYPAWS_ABI from "../lib/abi/OnlyPaws.json";
-import { ONLYPAWS_CONTRACT_ADDRESS } from "../lib/constants";
-
-interface PawImage {
-  id: string;
-  name: string;
-  price: string;
-  image_id: string;
-  owner: string;
-  image_url: string;
-}
-
-interface PawData {
-  id: string;
-  name: string;
-  price: string;
-  image_id: string;
-  owner: string;
-}
+import { usePawOwnership } from "../hooks/usePawOwnership";
+import Link from "next/link";
 
 export function Gallery() {
   const { address } = useAccount();
-  const [purchasedImages, setPurchasedImages] = useState<PawImage[]>([]);
-  const [allPaws, setAllPaws] = useState<PawData[]>([]);
-
-  // Fetch all paws first
-  useEffect(() => {
-    async function fetchAllPaws() {
-      const { data, error } = await supabase.from("paws").select("*");
-      if (!error && data) {
-        setAllPaws(data as PawData[]);
-      }
-    }
-    fetchAllPaws();
-  }, []);
-
-  // Use batch contract reading for ownership checks
-  const { data: ownershipData } = useReadContracts({
-    contracts: allPaws.map((paw) => ({
-      address: ONLYPAWS_CONTRACT_ADDRESS,
-      abi: ONLYPAWS_ABI as const,
-      functionName: "userHasPaw",
-      args: [address as `0x${string}`, BigInt(paw.id)],
-    })),
-  });
-
-  console.log({ ownershipData });
-
-  // Update purchased images when ownership data changes
-  useEffect(() => {
-    async function updatePurchasedImages() {
-      if (!ownershipData || !allPaws.length) return;
-
-      const ownedPaws = await Promise.all(
-        allPaws
-          .filter((_, index) => ownershipData[index]?.result)
-          .map(async (paw) => {
-            const { data: urlData } = supabase.storage
-              .from("paw-images")
-              .getPublicUrl(paw.image_id);
-
-            return {
-              ...paw,
-              image_url: urlData.publicUrl,
-            };
-          })
-      );
-
-      setPurchasedImages(ownedPaws);
-    }
-
-    updatePurchasedImages();
-  }, [ownershipData, allPaws]);
+  const { ownedPaws, isLoading } = usePawOwnership();
 
   if (!address) {
     return (
-      <div className="bg-background p-6 rounded-lg shadow-md">
-        <h2 className="text-3xl font-bold mb-6 text-primary">Your Gallery</h2>
-        <p className="text-text">
-          Connect your wallet to view your purchased images.
+      <div className="bg-gradient-to-r from-primary/10 to-secondary/10 p-8 rounded-xl text-center">
+        <h2 className="text-4xl font-bold mb-6 text-primary">Your Gallery</h2>
+        <p className="text-text/80">
+          Connect your wallet to view your purchased paws.
         </p>
       </div>
     );
   }
 
+  if (isLoading) {
+    return (
+      <div className="bg-gradient-to-r from-primary/10 to-secondary/10 p-8 rounded-xl text-center">
+        <p className="text-text/80">Loading your collection...</p>
+      </div>
+    );
+  }
+
   return (
-    <div className="bg-background p-6 rounded-lg shadow-md">
-      <h2 className="text-3xl font-bold mb-6 text-primary">Your Gallery</h2>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {purchasedImages.map((image) => (
-          <PawImageComponent
-            key={image.id}
-            image={image}
-            purchased
-            isInGallery={true}
-          />
-        ))}
+    <div className="space-y-8">
+      <div className="bg-gradient-to-r from-primary/10 to-secondary/10 p-8 rounded-xl">
+        <h2 className="text-4xl font-bold mb-4 text-primary">Your Gallery</h2>
+        <p className="text-text/80 mb-6">
+          Your collected paws are actively earning BGT rewards. Each paw earns
+          rewards for 7 days after purchase.
+        </p>
+      </div>
+
+      <div className="bg-background p-8 rounded-xl shadow-lg border border-primary/10">
+        {ownedPaws.length === 0 ? (
+          <div className="text-center py-12">
+            <p className="text-text/80 mb-4">Your gallery is empty.</p>
+            <Link
+              href="/marketplace"
+              className="inline-block bg-primary text-white px-6 py-2 rounded-lg hover:bg-primary/90 transition-colors"
+            >
+              Purchase Your First Paw
+            </Link>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {ownedPaws.map((image) => (
+              <PawImageComponent
+                key={image.id}
+                image={{
+                  ...image,
+                  image_url: image.publicUrl || "",
+                }}
+                purchased
+                isInGallery={true}
+              />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
