@@ -34,6 +34,18 @@ export function Marketplace() {
     (paw) => !ownedPaws.find((owned) => owned.id === paw.id)
   );
 
+  const sortedPaws = [...availablePaws].sort((a, b) => {
+    switch (sortBy) {
+      case "price-asc":
+        return parseFloat(a.price) - parseFloat(b.price);
+      case "price-desc":
+        return parseFloat(b.price) - parseFloat(a.price);
+      case "latest":
+      default:
+        return new Date(b.id).getTime() - new Date(a.id).getTime();
+    }
+  });
+
   useEffect(() => {
     fetchImages();
   }, []);
@@ -70,17 +82,13 @@ export function Marketplace() {
     }
   }
 
-  const sortedImages = [...images].sort((a, b) => {
-    switch (sortBy) {
-      case "price-asc":
-        return parseFloat(a.price) - parseFloat(b.price);
-      case "price-desc":
-        return parseFloat(b.price) - parseFloat(a.price);
-      case "latest":
-      default:
-        return new Date(b.id).getTime() - new Date(a.id).getTime();
-    }
-  });
+  async function handleUploadSuccess() {
+    await fetchImages();
+  }
+
+  useEffect(() => {
+    console.log("Updated images:", images);
+  }, [images]);
 
   return (
     <div className="space-y-8">
@@ -111,11 +119,10 @@ export function Marketplace() {
           <ul className="text-left space-y-2 text-text/80">
             <li>• Purchase a paw to start earning BGT rewards</li>
             <li>
-              • Your paw automatically stakes in the RewardsVault for 7 days
+              • Your paw automatically stakes in the Rewards Vault for 7 days
             </li>
-            <li>• Earn BGT rewards proportional to your stake</li>
             <li>
-              • Track your earnings and claim rewards in the{" "}
+              • Track your earnings and claim BGT in the{" "}
               <Link
                 href="/leaderboard"
                 className="text-primary hover:text-primary/80 underline"
@@ -148,7 +155,7 @@ export function Marketplace() {
           </select>
         </div>
 
-        {availablePaws.length === 0 ? (
+        {sortedPaws.length === 0 ? (
           <div className="text-center py-12 bg-background/50 rounded-lg border-2 border-dashed border-primary/20">
             <p className="text-text text-lg mb-4">
               No paws available for purchase at the moment.
@@ -162,7 +169,7 @@ export function Marketplace() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {availablePaws.map((image) => (
+            {sortedPaws.map((image) => (
               <PawImage
                 key={image.id}
                 image={{
@@ -192,7 +199,7 @@ export function Marketplace() {
       {showUploadModal && (
         <UploadModal
           onClose={() => setShowUploadModal(false)}
-          onSuccess={fetchImages}
+          onSuccess={handleUploadSuccess}
         />
       )}
     </div>

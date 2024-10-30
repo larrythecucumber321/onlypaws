@@ -61,6 +61,7 @@ export function PurchaseModal({
   function handlePurchase() {
     if (!image.price) return;
 
+    console.log(image.price.toString());
     writeContract({
       address: ONLYPAWS_CONTRACT_ADDRESS,
       abi: ONLYPAWS_ABI,

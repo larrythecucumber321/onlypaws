@@ -28,9 +28,11 @@ export function Leaderboard() {
       <div className="bg-gradient-to-r from-primary/10 to-secondary/10 p-8 rounded-xl">
         <h2 className="text-3xl font-bold mb-4 text-primary">Top Collectors</h2>
         <p className="text-text/80 mb-6">
-          Track the top paw collectors and their active BGT earning positions.
-          Your paws automatically earn BGT rewards for 7 days after purchase.
-          Check your position and claim your earned BGT rewards below.
+          Track the top paw collectors here. Paws purchased longer than 7 days
+          stop earning BGT
+        </p>
+        <p className="text-text/80 mb-6">
+          Claim your earned BGT rewards below.
         </p>
       </div>
 

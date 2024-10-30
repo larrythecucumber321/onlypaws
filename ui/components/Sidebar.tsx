@@ -89,7 +89,7 @@ export function Sidebar() {
                   }`}
                   onClick={() => setIsMobileMenuOpen(false)}
                 >
-                  Leaderboard
+                  BGT Leaderboard
                 </Link>
               </li>
             </ul>
