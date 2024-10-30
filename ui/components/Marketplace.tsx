@@ -3,7 +3,9 @@
 import { useState, useEffect } from "react";
 import { useAccount } from "wagmi";
 import { PawImage } from "./PawImage";
+import Image from "next/image";
 import { PurchaseModal } from "./PurchaseModal";
+import { UploadModal } from "./UploadModal";
 import { supabase } from "../lib/supabase";
 
 interface PawImage {
@@ -13,11 +15,16 @@ interface PawImage {
   image_id: string;
   owner: string;
   publicUrl?: string;
+  created_at: string;
 }
+
+type SortOption = "latest" | "price-asc" | "price-desc";
 
 export function Marketplace() {
   const [selectedImage, setSelectedImage] = useState<PawImage | null>(null);
+  const [showUploadModal, setShowUploadModal] = useState(false);
   const [images, setImages] = useState<PawImage[]>([]);
+  const [sortBy, setSortBy] = useState<SortOption>("latest");
   const { isConnected } = useAccount();
 
   useEffect(() => {
@@ -28,7 +35,7 @@ export function Marketplace() {
     try {
       const { data, error } = await supabase
         .from("paws")
-        .select("id, name, image_id, price, owner")
+        .select("*")
         .order("id", { ascending: false });
 
       if (error) throw error;
@@ -47,6 +54,8 @@ export function Marketplace() {
           })
         );
 
+        console.log(pawsWithUrls);
+
         setImages(pawsWithUrls);
       }
     } catch (error) {
@@ -54,33 +63,92 @@ export function Marketplace() {
     }
   }
 
-  if (images.length === 0) {
-    return (
-      <div className="bg-background p-6 rounded-lg shadow-md">
-        <h2 className="text-3xl font-bold mb-6 text-primary">Available Paws</h2>
-        <p className="text-text">
-          No paws available for purchase at the moment.
-        </p>
-      </div>
-    );
-  }
+  const sortedImages = [...images].sort((a, b) => {
+    switch (sortBy) {
+      case "price-asc":
+        return parseFloat(a.price) - parseFloat(b.price);
+      case "price-desc":
+        return parseFloat(b.price) - parseFloat(a.price);
+      case "latest":
+      default:
+        return new Date(b.id).getTime() - new Date(a.id).getTime();
+    }
+  });
 
   return (
-    <div className="bg-background p-6 rounded-lg shadow-md">
-      <h2 className="text-3xl font-bold mb-6 text-primary">Available Paws</h2>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {images.map((image) => (
-          <PawImage
-            key={image.id}
-            image={{
-              ...image,
-              image_url: image.publicUrl || "",
-            }}
-            onClick={() => setSelectedImage(image)}
-            isInGallery={false}
-          />
-        ))}
+    <div className="space-y-8">
+      <div className="bg-gradient-to-r from-primary/10 to-secondary/10 p-8 rounded-xl text-center">
+        <div className="flex items-center justify-center">
+          <h1 className="relative text-4xl font-bold text-primary mb-4">
+            Welcome to OnlyPaws
+          </h1>
+          <div className="relative w-16 h-16">
+            <Image
+              src="/logo.png"
+              alt="OnlyPaws Logo"
+              width={100}
+              height={100}
+              style={{ paddingTop: "5px", objectFit: "contain" }}
+              priority
+            />
+          </div>
+        </div>
+        <p className="text-text/80 mb-6 max-w-2xl mx-auto">
+          Discover and collect unique paws. Each purchase earns you BGT rewards
+          through staking. Start your collection today!
+        </p>
+        <button
+          onClick={() => setShowUploadModal(true)}
+          className="bg-primary text-white px-8 py-3 rounded-lg text-lg font-semibold hover:bg-primary/90 transition-colors shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 transition-all"
+        >
+          Show off Your Paw
+        </button>
       </div>
+
+      {/* Marketplace Section */}
+      <div className="bg-background p-8 rounded-xl shadow-lg border border-primary/10">
+        <div className="flex justify-between items-center mb-8">
+          <h2 className="text-3xl font-bold text-primary">Available Paws</h2>
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as SortOption)}
+            className="px-4 py-2 rounded-lg bg-background border border-primary/20 text-text focus:outline-none focus:ring-2 focus:ring-primary/50"
+          >
+            <option value="latest">Latest</option>
+            <option value="price-asc">Price: Low to High</option>
+            <option value="price-desc">Price: High to Low</option>
+          </select>
+        </div>
+
+        {sortedImages.length === 0 ? (
+          <div className="text-center py-12 bg-background/50 rounded-lg border-2 border-dashed border-primary/20">
+            <p className="text-text text-lg mb-4">
+              No paws available for purchase at the moment.
+            </p>
+            <button
+              onClick={() => setShowUploadModal(true)}
+              className="text-primary hover:text-primary/80 font-semibold"
+            >
+              Be the first to add a paw!
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {sortedImages.map((image) => (
+              <PawImage
+                key={image.id}
+                image={{
+                  ...image,
+                  image_url: image.publicUrl || "",
+                }}
+                onClick={() => setSelectedImage(image)}
+                isInGallery={false}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
       {selectedImage && isConnected && (
         <PurchaseModal
           image={{
@@ -90,6 +158,13 @@ export function Marketplace() {
           }}
           onClose={() => setSelectedImage(null)}
           onPurchase={fetchImages}
+        />
+      )}
+
+      {showUploadModal && (
+        <UploadModal
+          onClose={() => setShowUploadModal(false)}
+          onSuccess={fetchImages}
         />
       )}
     </div>

@@ -1,80 +1,115 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { Menu } from "lucide-react";
+import Image from "next/image";
+import { usePathname } from "next/navigation";
+import { ConnectButton } from "./ConnectButton";
+import { useState } from "react";
+import { Menu, X } from "lucide-react";
 
 export function Sidebar() {
-  const [isOpen, setIsOpen] = useState(false);
-  const sidebarRef = useRef<HTMLDivElement>(null);
+  const pathname = usePathname();
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  // Handle clicks outside sidebar
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (
-        sidebarRef.current &&
-        !sidebarRef.current.contains(event.target as Node)
-      ) {
-        setIsOpen(false);
-      }
-    }
-
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+  const isActive = (path: string) => pathname === path;
 
   return (
     <>
-      {isOpen && (
-        <div
-          className="fixed inset-0 bg-black bg-opacity-50 z-40 md:hidden"
-          onClick={() => setIsOpen(false)}
-        />
-      )}
+      {/* Mobile Menu Button */}
+      <div className="lg:hidden fixed top-4 left-4 z-50">
+        <button
+          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+          className="p-2 text-primary hover:bg-primary/10 rounded-lg transition-colors"
+        >
+          {isMobileMenuOpen ? (
+            <X className="h-6 w-6" />
+          ) : (
+            <Menu className="h-6 w-6" />
+          )}
+        </button>
+      </div>
 
-      <button
-        className="fixed top-4 left-4 z-50 md:hidden"
-        onClick={() => setIsOpen(!isOpen)}
-      >
-        <Menu className="h-6 w-6" />
-      </button>
-
+      {/* Sidebar */}
       <div
-        ref={sidebarRef}
-        className={`fixed top-0 left-0 h-full md:h-auto w-64 bg-gray-900 text-white transform transition-transform duration-200 ease-in-out z-50 md:relative md:transform-none ${
-          isOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
-        }`}
+        className={`${
+          isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"
+        } lg:translate-x-0 fixed lg:sticky top-0 left-0 h-screen w-64 bg-[#1a1b1e] transform transition-transform duration-200 ease-in-out z-40`}
       >
-        <div className="p-6 h-full flex flex-col">
-          <h1 className="text-2xl font-bold text-primary mb-8">OnlyPaws</h1>
-          <nav className="space-y-4 flex-grow">
-            <Link
-              href="/"
-              className="block text-gray-300 hover:text-white transition-colors"
-            >
-              Home
-            </Link>
-            <Link
-              href="/marketplace"
-              className="block text-gray-300 hover:text-white transition-colors"
-            >
-              Marketplace
-            </Link>
-            <Link
-              href="/gallery"
-              className="block text-gray-300 hover:text-white transition-colors"
-            >
-              Gallery
-            </Link>
-            <Link
-              href="/leaderboard"
-              className="block text-gray-300 hover:text-white transition-colors"
-            >
-              Leaderboard
-            </Link>
+        <div className="flex flex-col h-full">
+          <div className="p-6 border-b border-primary/10">
+            <div className="flex items-center">
+              <div className="relative w-16 h-16">
+                <Image
+                  src="/logo.png"
+                  alt="OnlyPaws Logo"
+                  fill
+                  style={{ objectFit: "contain" }}
+                  priority
+                />
+              </div>
+              <span className="text-3xl font-bold text-primary">OnlyPaws</span>
+            </div>
+          </div>
+
+          {/* Navigation Links */}
+          <nav className="flex-1 p-4">
+            <ul className="space-y-2">
+              <li>
+                <Link
+                  href="/marketplace"
+                  className={`flex items-center px-4 py-2 rounded-lg transition-colors ${
+                    isActive("/marketplace")
+                      ? "bg-[#00A6ED] text-white"
+                      : "text-text hover:bg-primary/10"
+                  }`}
+                  onClick={() => setIsMobileMenuOpen(false)}
+                >
+                  Marketplace
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="/gallery"
+                  className={`flex items-center px-4 py-2 rounded-lg transition-colors ${
+                    isActive("/gallery")
+                      ? "bg-[#00A6ED] text-white"
+                      : "text-text hover:bg-primary/10"
+                  }`}
+                  onClick={() => setIsMobileMenuOpen(false)}
+                >
+                  Gallery
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="/leaderboard"
+                  className={`flex items-center px-4 py-2 rounded-lg transition-colors ${
+                    isActive("/leaderboard")
+                      ? "bg-[#00A6ED] text-white"
+                      : "text-text hover:bg-primary/10"
+                  }`}
+                  onClick={() => setIsMobileMenuOpen(false)}
+                >
+                  Leaderboard
+                </Link>
+              </li>
+            </ul>
           </nav>
+
+          {/* Connect Button */}
+          <div className="p-4 border-t border-primary/10">
+            <ConnectButton />
+          </div>
         </div>
       </div>
+
+      {/* Overlay for mobile */}
+      {isMobileMenuOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-30 lg:hidden"
+          onClick={() => setIsMobileMenuOpen(false)}
+        />
+      )}
     </>
   );
 }
