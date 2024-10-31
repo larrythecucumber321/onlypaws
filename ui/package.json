@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "vercel-build": "yarn install && yarn run build"
   },
   "dependencies": {
     "@apollo/client": "^3.11.8",
@@ -19,7 +20,9 @@
     "react": "^18",
     "react-dom": "^18",
     "viem": "^2.21.7",
-    "wagmi": "^2.12.11"
+    "wagmi": "^2.12.11",
+    "encoding": "^0.1.13",
+    "pino-pretty": "^10.3.1"
   },
   "devDependencies": {
     "@tailwindcss/container-queries": "^0.1.1",

@@ -28,7 +28,7 @@ export function Marketplace() {
   const [images, setImages] = useState<PawImage[]>([]);
   const [sortBy, setSortBy] = useState<SortOption>("latest");
   const { isConnected } = useAccount();
-  const { ownedPaws, allPaws, isLoading } = usePawOwnership();
+  const { ownedPaws, allPaws } = usePawOwnership();
 
   const availablePaws = allPaws.filter(
     (paw) => !ownedPaws.find((owned) => owned.id === paw.id)

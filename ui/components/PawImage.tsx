@@ -8,14 +8,12 @@ interface PawImageProps {
     image_url: string;
   };
   onClick?: () => void;
-  purchased?: boolean;
   isInGallery?: boolean;
 }
 
 export function PawImage({
   image,
   onClick,
-  purchased = false,
   isInGallery = false,
 }: PawImageProps) {
   return (
